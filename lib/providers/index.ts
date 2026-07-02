@@ -1,28 +1,55 @@
+import type { CalendarEvent, EmailMessage } from "@/lib/types";
+import { getStore } from "@/lib/store";
 import type { CalendarProvider, EmailProvider } from "./types";
-import { MockCalendarProvider } from "./mock-calendar";
-import { MockEmailProvider } from "./mock-email";
 
 /**
- * Provider wiring. This is the single place to swap mocks for real
- * integrations, e.g.:
+ * Provider wiring. The default implementations are backed by the family
+ * store (Supabase or local JSON), which holds realistic seeded demo data.
  *
- *   const calendar: CalendarProvider = new GoogleCalendarProvider(oauthClient);
- *   const email: EmailProvider = new GmailProvider(oauthClient);
+ * To go live with a real service, implement the interface against its API
+ * and swap it in here — no agent code changes:
  *
- * Module-level singletons keep mock state alive across requests in dev.
+ *   const calendar: CalendarProvider = new GoogleCalendarProvider(oauth);
+ *   const email: EmailProvider = new GmailProvider(oauth);
  */
 
-const globalForProviders = globalThis as unknown as {
-  __familyHqCalendar?: CalendarProvider;
-  __familyHqEmail?: EmailProvider;
-};
+class StoreCalendarProvider implements CalendarProvider {
+  listEvents(from: string, to: string): Promise<CalendarEvent[]> {
+    return getStore().listEvents(from, to);
+  }
+  createEvent(event: Omit<CalendarEvent, "id">): Promise<CalendarEvent> {
+    return getStore().createEvent(event);
+  }
+  updateEvent(id: string, patch: Partial<Omit<CalendarEvent, "id">>): Promise<CalendarEvent | null> {
+    return getStore().updateEvent(id, patch);
+  }
+  deleteEvent(id: string): Promise<boolean> {
+    return getStore().deleteEvent(id);
+  }
+}
+
+class StoreEmailProvider implements EmailProvider {
+  listRecent(limit: number): Promise<EmailMessage[]> {
+    return getStore().listRecentEmails(limit);
+  }
+  search(query: string): Promise<EmailMessage[]> {
+    return getStore().searchEmails(query);
+  }
+  markRead(id: string): Promise<boolean> {
+    return getStore().markEmailRead(id);
+  }
+  sendEmail(to: string, subject: string, body: string): Promise<{ id: string }> {
+    return getStore().recordSentEmail(to, subject, body);
+  }
+}
+
+const calendar = new StoreCalendarProvider();
+const email = new StoreEmailProvider();
 
 export function getCalendarProvider(): CalendarProvider {
-  globalForProviders.__familyHqCalendar ??= new MockCalendarProvider();
-  return globalForProviders.__familyHqCalendar;
+  return calendar;
 }
 
 export function getEmailProvider(): EmailProvider {
-  globalForProviders.__familyHqEmail ??= new MockEmailProvider();
-  return globalForProviders.__familyHqEmail;
+  return email;
 }

@@ -79,6 +79,7 @@ export interface GroceryItem {
   done: boolean;
 }
 
+/** Full household snapshot — used by the seed and the local JSON store. */
 export interface FamilyData {
   familyName: string;
   members: FamilyMember[];
@@ -88,4 +89,6 @@ export interface FamilyData {
   tasks: FamilyTask[];
   mealPlan: MealPlanEntry[];
   groceries: GroceryItem[];
+  events: CalendarEvent[];
+  emails: EmailMessage[];
 }

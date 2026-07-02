@@ -30,25 +30,37 @@ lib/
     orchestrator.ts        Chief-of-Staff loop + specialist sub-loops
   providers/
     types.ts               CalendarProvider / EmailProvider interfaces
-    mock-calendar.ts       Seeded mock calendar
-    mock-email.ts          Seeded mock inbox
-    index.ts               Provider wiring (swap mocks → real here)
-  store.ts                 Family state (budget, meals, tasks...), persisted to data/
+    index.ts               Provider wiring (swap store-backed mocks → real here)
+  store/
+    types.ts               FamilyStore interface (all state goes through this)
+    supabase.ts            Supabase implementation (production / Vercel)
+    local.ts               JSON-file implementation (zero-setup local dev)
+    seed.ts                Demo household data (relative dates, seeded on first run)
+    index.ts               Backend selection via env vars
+supabase/
+  migrations/0001_init.sql Database schema (run once per Supabase project)
 ```
+
+### Storage: Supabase in production, JSON file for local dev
+
+All household state flows through the `FamilyStore` interface (`lib/store/types.ts`) with two backends:
+
+- **Supabase** (`lib/store/supabase.ts`) — used automatically when `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set. Relational schema, seeds the demo household on first run. Use this on Vercel — serverless filesystems are ephemeral.
+- **Local JSON** (`lib/store/local.ts`) — zero-setup fallback; persists to `data/family-data.json` (gitignored, delete to reset).
 
 ### Integrations: mock today, real tomorrow
 
-Agents only talk to the `CalendarProvider` / `EmailProvider` interfaces in `lib/providers/types.ts`. The shipped implementations are seeded mocks so the whole system works end-to-end with zero setup. To go live with Google:
+Agents only talk to the `CalendarProvider` / `EmailProvider` interfaces in `lib/providers/types.ts`. The shipped implementations are store-backed mocks with realistic seeded data, so the whole system works end-to-end with zero OAuth setup. To go live with Google:
 
 1. Implement `GoogleCalendarProvider` / `GmailProvider` against those interfaces (OAuth + `googleapis`).
 2. Swap the constructors in `lib/providers/index.ts`.
 
 No agent or UI code changes.
 
-## Running it
+## Running it locally
 
 ```bash
-cp .env.example .env.local   # add your ANTHROPIC_API_KEY
+cp .env.example .env.local   # add your ANTHROPIC_API_KEY (Supabase vars optional locally)
 npm install
 npm run dev
 ```
@@ -59,10 +71,26 @@ Open http://localhost:3000 and try:
 - *"Plan dinners for the rest of the week and update the grocery list"*
 - *"How's our budget looking this month?"*
 
-Mock family state lives in `data/family-data.json` (gitignored); delete it to reset to the seed data.
+## Setting up Supabase
+
+1. Create a project at [supabase.com](https://supabase.com) (free tier is fine).
+2. Open the SQL editor and run `supabase/migrations/0001_init.sql` (or use `supabase db push` with the CLI).
+3. Set the env vars (locally in `.env.local`, or in your host's dashboard):
+   - `SUPABASE_URL` — Project settings → Data API
+   - `SUPABASE_SERVICE_ROLE_KEY` — Project settings → API keys (**server-side secret**; never expose it to the browser or prefix it with `NEXT_PUBLIC_`)
+4. Start the app — it seeds the demo household on first request. To reset, wipe the tables (`delete from households;` cascades everywhere) and reload.
+
+Row-level security is enabled with no policies, so the anon key can read nothing; the server uses the service role key. When you add Supabase Auth for multi-family use, replace service-role access with per-household RLS policies (`household_id` is already on every table).
+
+## Deploying to Vercel
+
+1. Import the repo at vercel.com.
+2. Set `ANTHROPIC_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in the project's environment variables.
+3. Deploy. Streaming chat and long agent turns work out of the box (`maxDuration = 300` is set on the chat route).
 
 ## Notes & next steps
 
-- **Persistence** is a JSON file for demo purposes — swap `lib/store.ts` for a database for multi-user use.
+- **Auth / multi-family**: the schema is multi-tenant-ready (`household_id` on every table). Next step is Supabase Auth + a household-membership mapping + RLS policies, then dropping the service-role key from the request path.
+- **Realtime dashboard**: the dashboard currently refetches when the chat stream reports a mutation; with Supabase Realtime it can subscribe to table changes so every family member's view updates live.
 - **Confirmation gates**: the Chief of Staff is prompted to ask before hard-to-reverse actions (e.g. sending email); a production version should enforce this in the harness, not just the prompt.
 - Natural extensions: Home & Maintenance agent, Health & Appointments agent, Travel Planner, real Google/Microsoft OAuth, per-member views, and push notifications.

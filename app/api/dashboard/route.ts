@@ -1,33 +1,37 @@
-import { getCalendarProvider, getEmailProvider } from "@/lib/providers";
-import { getFamilyData } from "@/lib/store";
+import { getStore } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<Response> {
-  const data = getFamilyData();
+  const store = getStore();
 
   const now = new Date();
   const weekOut = new Date(now);
   weekOut.setDate(weekOut.getDate() + 8);
+  const today = now.toISOString().slice(0, 10);
 
-  const [events, emails] = await Promise.all([
-    getCalendarProvider().listEvents(now.toISOString(), weekOut.toISOString()),
-    getEmailProvider().listRecent(6),
-  ]);
+  const [household, events, emails, budget, bills, tasks, mealPlan, groceries] =
+    await Promise.all([
+      store.getHousehold(),
+      store.listEvents(now.toISOString(), weekOut.toISOString()),
+      store.listRecentEmails(6),
+      store.getBudget(),
+      store.getBills(),
+      store.getTasks(),
+      store.getMealPlan(),
+      store.getGroceries(),
+    ]);
 
   return Response.json({
-    familyName: data.familyName,
-    members: data.members,
+    familyName: household.familyName,
+    members: household.members,
     events,
     emails: emails.map(({ id, from, subject, date, read }) => ({ id, from, subject, date, read })),
-    budget: data.budget,
-    bills: data.bills.filter((b) => !b.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
-    tasks: data.tasks.filter((t) => !t.done),
-    mealPlan: [...data.mealPlan]
-      .filter((m) => m.day >= now.toISOString().slice(0, 10))
-      .sort((a, b) => a.day.localeCompare(b.day))
-      .slice(0, 7),
-    groceries: data.groceries.filter((g) => !g.done),
+    budget,
+    bills: bills.filter((b) => !b.paid),
+    tasks: tasks.filter((t) => !t.done),
+    mealPlan: mealPlan.filter((m) => m.day >= today).slice(0, 7),
+    groceries: groceries.filter((g) => !g.done),
   });
 }

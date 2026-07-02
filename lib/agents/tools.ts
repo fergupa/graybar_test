@@ -1,5 +1,5 @@
 import { getCalendarProvider, getEmailProvider } from "@/lib/providers";
-import { getFamilyData, saveFamilyData, newId } from "@/lib/store";
+import { getStore } from "@/lib/store";
 
 /**
  * Tools the agents can call. Each tool returns a string (usually JSON) that
@@ -24,8 +24,7 @@ export const getFamilyOverview: AgentTool = {
     "Get the family roster (names, ages, roles, important notes like allergies and schedules). Call this when you need to know who is in the family or their constraints.",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   async run() {
-    const d = getFamilyData();
-    return j({ familyName: d.familyName, members: d.members });
+    return j(await getStore().getHousehold());
   },
 };
 
@@ -45,8 +44,7 @@ export const listCalendarEvents: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const events = await getCalendarProvider().listEvents(String(input.from), String(input.to));
-    return j(events);
+    return j(await getCalendarProvider().listEvents(String(input.from), String(input.to)));
   },
 };
 
@@ -92,8 +90,7 @@ export const deleteCalendarEvent: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const ok = await getCalendarProvider().deleteEvent(String(input.id));
-    return j({ deleted: ok });
+    return j({ deleted: await getCalendarProvider().deleteEvent(String(input.id)) });
   },
 };
 
@@ -162,7 +159,7 @@ export const getBudget: AgentTool = {
   description: "Get all budget categories with monthly budget and month-to-date spend.",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   async run() {
-    return j(getFamilyData().budget);
+    return j(await getStore().getBudget());
   },
 };
 
@@ -171,8 +168,7 @@ export const getTransactions: AgentTool = {
   description: "List recent transactions (date, description, amount, category).",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   async run() {
-    const txns = [...getFamilyData().transactions].sort((a, b) => b.date.localeCompare(a.date));
-    return j(txns);
+    return j(await getStore().getTransactions());
   },
 };
 
@@ -193,23 +189,13 @@ export const addTransaction: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const d = getFamilyData();
-    const category = String(input.category);
-    const cat = d.budget.find((b) => b.name.toLowerCase() === category.toLowerCase());
-    if (!cat) {
-      return j({ error: `Unknown category "${category}". Valid: ${d.budget.map((b) => b.name).join(", ")}` });
-    }
-    const txn = {
-      id: newId("t"),
-      date: input.date ? String(input.date) : new Date().toISOString().slice(0, 10),
+    const result = await getStore().addTransaction({
       description: String(input.description),
       amount: Number(input.amount),
-      category: cat.name,
-    };
-    d.transactions.push(txn);
-    cat.spent = Math.round((cat.spent + txn.amount) * 100) / 100;
-    saveFamilyData();
-    return j({ added: txn, categorySpent: cat.spent, categoryBudget: cat.monthlyBudget });
+      category: String(input.category),
+      date: input.date ? String(input.date) : undefined,
+    });
+    return j(result);
   },
 };
 
@@ -227,17 +213,11 @@ export const setBudgetCategory: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const d = getFamilyData();
-    const name = String(input.name);
-    let cat = d.budget.find((b) => b.name.toLowerCase() === name.toLowerCase());
-    if (cat) {
-      cat.monthlyBudget = Number(input.monthlyBudget);
-    } else {
-      cat = { id: newId("b"), name, monthlyBudget: Number(input.monthlyBudget), spent: 0 };
-      d.budget.push(cat);
-    }
-    saveFamilyData();
-    return j({ category: cat });
+    const category = await getStore().setBudgetCategory(
+      String(input.name),
+      Number(input.monthlyBudget),
+    );
+    return j({ category });
   },
 };
 
@@ -246,8 +226,7 @@ export const getUpcomingBills: AgentTool = {
   description: "List bills with amount, due date, autopay status, and whether they're paid.",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   async run() {
-    const bills = [...getFamilyData().bills].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-    return j(bills);
+    return j(await getStore().getBills());
   },
 };
 
@@ -262,11 +241,8 @@ export const markBillPaid: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const bill = getFamilyData().bills.find((b) => b.id === String(input.id));
-    if (!bill) return j({ error: "Bill not found" });
-    bill.paid = true;
-    saveFamilyData();
-    return j({ bill });
+    const bill = await getStore().markBillPaid(String(input.id));
+    return j(bill ? { bill } : { error: "Bill not found" });
   },
 };
 
@@ -277,7 +253,7 @@ export const listTasks: AgentTool = {
   description: "List the family to-do list (title, assignee, due date, done).",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   async run() {
-    return j(getFamilyData().tasks);
+    return j(await getStore().getTasks());
   },
 };
 
@@ -296,16 +272,11 @@ export const addTask: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const d = getFamilyData();
-    const task = {
-      id: newId("task"),
+    const task = await getStore().addTask({
       title: String(input.title),
       assignee: input.assignee ? String(input.assignee) : undefined,
       due: input.due ? String(input.due) : undefined,
-      done: false,
-    };
-    d.tasks.push(task);
-    saveFamilyData();
+    });
     return j({ added: task });
   },
 };
@@ -321,11 +292,8 @@ export const completeTask: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const task = getFamilyData().tasks.find((t) => t.id === String(input.id));
-    if (!task) return j({ error: "Task not found" });
-    task.done = true;
-    saveFamilyData();
-    return j({ task });
+    const task = await getStore().completeTask(String(input.id));
+    return j(task ? { task } : { error: "Task not found" });
   },
 };
 
@@ -336,8 +304,7 @@ export const getMealPlan: AgentTool = {
   description: "Get the current dinner plan (one entry per day).",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   async run() {
-    const plan = [...getFamilyData().mealPlan].sort((a, b) => a.day.localeCompare(b.day));
-    return j(plan);
+    return j(await getStore().getMealPlan());
   },
 };
 
@@ -357,17 +324,11 @@ export const setMealPlanEntry: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const d = getFamilyData();
-    const day = String(input.day);
-    const existing = d.mealPlan.find((m) => m.day === day);
-    const entry = {
-      day,
+    const entry = await getStore().setMealPlanEntry({
+      day: String(input.day),
       dinner: String(input.dinner),
       notes: input.notes ? String(input.notes) : undefined,
-    };
-    if (existing) Object.assign(existing, entry);
-    else d.mealPlan.push(entry);
-    saveFamilyData();
+    });
     return j({ entry });
   },
 };
@@ -377,7 +338,7 @@ export const getGroceryList: AgentTool = {
   description: "Get the shared grocery list.",
   input_schema: { type: "object", properties: {}, additionalProperties: false },
   async run() {
-    return j(getFamilyData().groceries);
+    return j(await getStore().getGroceries());
   },
 };
 
@@ -405,28 +366,16 @@ export const addGroceryItems: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const d = getFamilyData();
-    const items = Array.isArray(input.items) ? input.items : [];
-    const added: string[] = [];
-    const skipped: string[] = [];
-    for (const raw of items) {
-      const item = raw as { name?: unknown; quantity?: unknown };
-      const name = String(item.name ?? "").trim();
-      if (!name) continue;
-      if (d.groceries.some((g) => g.name.toLowerCase() === name.toLowerCase() && !g.done)) {
-        skipped.push(name);
-        continue;
-      }
-      d.groceries.push({
-        id: newId("g"),
-        name,
-        quantity: item.quantity ? String(item.quantity) : undefined,
-        done: false,
-      });
-      added.push(name);
-    }
-    saveFamilyData();
-    return j({ added, alreadyOnList: skipped });
+    const items = (Array.isArray(input.items) ? input.items : [])
+      .map((raw) => {
+        const item = raw as { name?: unknown; quantity?: unknown };
+        return {
+          name: String(item.name ?? ""),
+          quantity: item.quantity ? String(item.quantity) : undefined,
+        };
+      })
+      .filter((i) => i.name.trim().length > 0);
+    return j(await getStore().addGroceryItems(items));
   },
 };
 
@@ -444,18 +393,7 @@ export const checkOffGroceryItem: AgentTool = {
     additionalProperties: false,
   },
   async run(input) {
-    const d = getFamilyData();
-    const id = String(input.id);
-    if (input.remove) {
-      const before = d.groceries.length;
-      d.groceries = d.groceries.filter((g) => g.id !== id);
-      saveFamilyData();
-      return j({ removed: d.groceries.length < before });
-    }
-    const item = d.groceries.find((g) => g.id === id);
-    if (!item) return j({ error: "Item not found" });
-    item.done = true;
-    saveFamilyData();
-    return j({ item });
+    const result = await getStore().checkOffGroceryItem(String(input.id), Boolean(input.remove));
+    return j(result.ok ? result : { ...result, error: "Item not found" });
   },
 };

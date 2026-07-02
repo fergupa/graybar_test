@@ -1,0 +1,264 @@
+import fs from "fs";
+import path from "path";
+import type {
+  Bill,
+  BudgetCategory,
+  CalendarEvent,
+  EmailMessage,
+  FamilyData,
+  FamilyMember,
+  FamilyTask,
+  GroceryItem,
+  MealPlanEntry,
+  Transaction,
+} from "@/lib/types";
+import { seed } from "./seed";
+import { newId, type AddTransactionResult, type FamilyStore } from "./types";
+
+const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_FILE = path.join(DATA_DIR, "family-data.json");
+
+/**
+ * Zero-setup store: keeps the whole household in data/family-data.json.
+ * Good for local dev; on serverless hosts state is ephemeral — use Supabase
+ * there (set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).
+ */
+export class LocalJsonStore implements FamilyStore {
+  private cache: FamilyData | null = null;
+
+  private data(): FamilyData {
+    if (this.cache) return this.cache;
+    try {
+      if (fs.existsSync(DATA_FILE)) {
+        this.cache = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as FamilyData;
+        // Older data files predate events/emails living in the store.
+        const fresh = seed();
+        this.cache.events ??= fresh.events;
+        this.cache.emails ??= fresh.emails;
+        return this.cache;
+      }
+    } catch {
+      // corrupt file — reseed
+    }
+    this.cache = seed();
+    this.save();
+    return this.cache;
+  }
+
+  private save(): void {
+    if (!this.cache) return;
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(DATA_FILE, JSON.stringify(this.cache, null, 2));
+    } catch {
+      // read-only filesystem — keep state in memory only
+    }
+  }
+
+  async getHousehold(): Promise<{ familyName: string; members: FamilyMember[] }> {
+    const d = this.data();
+    return { familyName: d.familyName, members: d.members };
+  }
+
+  async getBudget(): Promise<BudgetCategory[]> {
+    return this.data().budget;
+  }
+
+  async setBudgetCategory(name: string, monthlyBudget: number): Promise<BudgetCategory> {
+    const d = this.data();
+    let cat = d.budget.find((b) => b.name.toLowerCase() === name.toLowerCase());
+    if (cat) {
+      cat.monthlyBudget = monthlyBudget;
+    } else {
+      cat = { id: newId("b"), name, monthlyBudget, spent: 0 };
+      d.budget.push(cat);
+    }
+    this.save();
+    return cat;
+  }
+
+  async getTransactions(): Promise<Transaction[]> {
+    return [...this.data().transactions].sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  async addTransaction(input: {
+    description: string;
+    amount: number;
+    category: string;
+    date?: string;
+  }): Promise<AddTransactionResult> {
+    const d = this.data();
+    const cat = d.budget.find((b) => b.name.toLowerCase() === input.category.toLowerCase());
+    if (!cat) {
+      return { error: `Unknown category "${input.category}". Valid: ${d.budget.map((b) => b.name).join(", ")}` };
+    }
+    const txn: Transaction = {
+      id: newId("t"),
+      date: input.date ?? new Date().toISOString().slice(0, 10),
+      description: input.description,
+      amount: input.amount,
+      category: cat.name,
+    };
+    d.transactions.push(txn);
+    cat.spent = Math.round((cat.spent + txn.amount) * 100) / 100;
+    this.save();
+    return { added: txn, categorySpent: cat.spent, categoryBudget: cat.monthlyBudget };
+  }
+
+  async getBills(): Promise<Bill[]> {
+    return [...this.data().bills].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  }
+
+  async markBillPaid(id: string): Promise<Bill | null> {
+    const bill = this.data().bills.find((b) => b.id === id);
+    if (!bill) return null;
+    bill.paid = true;
+    this.save();
+    return bill;
+  }
+
+  async getTasks(): Promise<FamilyTask[]> {
+    return this.data().tasks;
+  }
+
+  async addTask(input: { title: string; assignee?: string; due?: string }): Promise<FamilyTask> {
+    const d = this.data();
+    const task: FamilyTask = { id: newId("task"), done: false, ...input };
+    d.tasks.push(task);
+    this.save();
+    return task;
+  }
+
+  async completeTask(id: string): Promise<FamilyTask | null> {
+    const task = this.data().tasks.find((t) => t.id === id);
+    if (!task) return null;
+    task.done = true;
+    this.save();
+    return task;
+  }
+
+  async getMealPlan(): Promise<MealPlanEntry[]> {
+    return [...this.data().mealPlan].sort((a, b) => a.day.localeCompare(b.day));
+  }
+
+  async setMealPlanEntry(entry: MealPlanEntry): Promise<MealPlanEntry> {
+    const d = this.data();
+    const existing = d.mealPlan.find((m) => m.day === entry.day);
+    if (existing) Object.assign(existing, entry);
+    else d.mealPlan.push(entry);
+    this.save();
+    return entry;
+  }
+
+  async getGroceries(): Promise<GroceryItem[]> {
+    return this.data().groceries;
+  }
+
+  async addGroceryItems(
+    items: { name: string; quantity?: string }[],
+  ): Promise<{ added: string[]; alreadyOnList: string[] }> {
+    const d = this.data();
+    const added: string[] = [];
+    const alreadyOnList: string[] = [];
+    for (const item of items) {
+      const name = item.name.trim();
+      if (!name) continue;
+      if (d.groceries.some((g) => g.name.toLowerCase() === name.toLowerCase() && !g.done)) {
+        alreadyOnList.push(name);
+        continue;
+      }
+      d.groceries.push({ id: newId("g"), name, quantity: item.quantity, done: false });
+      added.push(name);
+    }
+    this.save();
+    return { added, alreadyOnList };
+  }
+
+  async checkOffGroceryItem(id: string, remove?: boolean): Promise<{ ok: boolean }> {
+    const d = this.data();
+    if (remove) {
+      const before = d.groceries.length;
+      d.groceries = d.groceries.filter((g) => g.id !== id);
+      this.save();
+      return { ok: d.groceries.length < before };
+    }
+    const item = d.groceries.find((g) => g.id === id);
+    if (!item) return { ok: false };
+    item.done = true;
+    this.save();
+    return { ok: true };
+  }
+
+  async listEvents(from: string, to: string): Promise<CalendarEvent[]> {
+    const fromT = new Date(from).getTime();
+    const toT = new Date(to).getTime();
+    return this.data()
+      .events.filter((e) => {
+        const t = new Date(e.start).getTime();
+        return t >= fromT && t <= toT;
+      })
+      .sort((a, b) => a.start.localeCompare(b.start));
+  }
+
+  async createEvent(event: Omit<CalendarEvent, "id">): Promise<CalendarEvent> {
+    const created: CalendarEvent = { ...event, id: newId("evt") };
+    this.data().events.push(created);
+    this.save();
+    return created;
+  }
+
+  async updateEvent(
+    id: string,
+    patch: Partial<Omit<CalendarEvent, "id">>,
+  ): Promise<CalendarEvent | null> {
+    const evt = this.data().events.find((e) => e.id === id);
+    if (!evt) return null;
+    Object.assign(evt, patch);
+    this.save();
+    return evt;
+  }
+
+  async deleteEvent(id: string): Promise<boolean> {
+    const d = this.data();
+    const before = d.events.length;
+    d.events = d.events.filter((e) => e.id !== id);
+    this.save();
+    return d.events.length < before;
+  }
+
+  async listRecentEmails(limit: number): Promise<EmailMessage[]> {
+    return [...this.data().emails].sort((a, b) => b.date.localeCompare(a.date)).slice(0, limit);
+  }
+
+  async searchEmails(query: string): Promise<EmailMessage[]> {
+    const q = query.toLowerCase();
+    return this.data().emails.filter(
+      (m) =>
+        m.from.toLowerCase().includes(q) ||
+        m.subject.toLowerCase().includes(q) ||
+        m.body.toLowerCase().includes(q),
+    );
+  }
+
+  async markEmailRead(id: string): Promise<boolean> {
+    const msg = this.data().emails.find((m) => m.id === id);
+    if (!msg) return false;
+    msg.read = true;
+    this.save();
+    return true;
+  }
+
+  async recordSentEmail(to: string, subject: string, body: string): Promise<{ id: string }> {
+    const id = newId("em-out");
+    this.data().emails.push({
+      id,
+      from: "You (sent)",
+      subject: `To ${to}: ${subject}`,
+      date: new Date().toISOString(),
+      body,
+      read: true,
+    });
+    this.save();
+    return { id };
+  }
+}
