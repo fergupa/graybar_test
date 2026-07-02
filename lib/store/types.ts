@@ -6,9 +6,12 @@ import type {
   FamilyMember,
   FamilyTask,
   GroceryItem,
+  HouseholdProfile,
   MealPlanEntry,
   Transaction,
 } from "@/lib/types";
+
+export type MemberInput = Omit<FamilyMember, "id"> & { id?: string };
 
 export type AddTransactionResult =
   | { error: string }
@@ -26,7 +29,19 @@ export type AddTransactionResult =
  * Agents and API routes only ever talk to this interface.
  */
 export interface FamilyStore {
-  getHousehold(): Promise<{ familyName: string; members: FamilyMember[] }>;
+  getHousehold(): Promise<HouseholdProfile>;
+
+  // Profile & onboarding
+  updateHouseholdProfile(input: { familyName?: string; notes?: string }): Promise<HouseholdProfile>;
+  upsertMember(input: MemberInput): Promise<FamilyMember>;
+  removeMember(id: string): Promise<boolean>;
+  setOnboarded(done: boolean): Promise<void>;
+  /**
+   * Wipe the seeded demo content (members, calendar, inbox, transactions,
+   * bills, tasks, meals, groceries; budget spent reset to 0). Keeps the
+   * household row and budget categories.
+   */
+  clearDemoData(): Promise<void>;
 
   // Finance
   getBudget(): Promise<BudgetCategory[]>;

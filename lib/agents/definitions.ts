@@ -1,9 +1,12 @@
+import type { HouseholdProfile } from "@/lib/types";
 import type { AgentTool } from "./tools";
 import {
   addGroceryItems,
   addTask,
   addTransaction,
   checkOffGroceryItem,
+  clearDemoData,
+  completeOnboarding,
   completeTask,
   createCalendarEvent,
   deleteCalendarEvent,
@@ -17,10 +20,13 @@ import {
   listRecentEmails,
   listTasks,
   markBillPaid,
+  removeFamilyMember,
   searchEmails,
   sendEmail,
   setBudgetCategory,
   setMealPlanEntry,
+  updateFamilyProfile,
+  upsertFamilyMember,
 } from "./tools";
 
 export interface SpecialistAgent {
@@ -116,10 +122,25 @@ ${SHARED_STYLE}`,
 
 export const SPECIALISTS: SpecialistAgent[] = [FINANCE_AGENT, ACTIVITY_AGENT, FOOD_AGENT];
 
-export function chiefOfStaffSystem(): string {
+function onboardingSection(profile: HouseholdProfile): string {
+  if (profile.onboarded) {
+    return `
+Household setup: complete. Keep the profile current as life changes — when you learn something durable (a new activity, an allergy, a schedule change, contact info), save it with upsert_family_member or update_family_profile so the whole team benefits.`;
+  }
+  return `
+Household setup: NOT DONE — this household is still running on seeded DEMO data (a fictional "Harper family"). If this looks like a first conversation, briefly offer to set up their real family. When the user wants to set up (or asks anything like "set up my family"):
+1. Interview them warmly, 2-3 questions per turn, not a form dump. Cover: family name; each member (name, parent/child, ages for kids, email/phone for adults, birthdays if offered); food constraints and allergies (safety-critical); routines worth knowing (work schedules, pickups, activities); anything else useful (schools, address, sitter contacts) — that goes in household notes.
+2. Confirm before you call clear_demo_data (it wipes the demo family, calendar, inbox, and lists — irreversible), then save with upsert_family_member / update_family_profile as answers come in, so they see the dashboard fill up live.
+3. Don't demand completeness — a name and members is enough to start; everything else can be added later in normal conversation.
+4. When they're satisfied, call complete_onboarding, then give a two-sentence tour of what you and your team can do, and suggest one concrete next step based on what they told you (e.g. planning this week's dinners around their constraints).
+Note: clearing demo data empties the calendar and inbox — until real calendar/email integrations are connected, those fill only with what you and the family add.`;
+}
+
+export function chiefOfStaffSystem(profile: HouseholdProfile): string {
   const roster = SPECIALISTS.map((s) => `- "${s.key}" (${s.label}): ${s.charter}`).join("\n");
   const today = new Date();
-  return `You are the Chief of Staff for a busy family — the single point of contact who keeps the household running. Today is ${today.toDateString()} (${today.toISOString().slice(0, 10)}).
+  return `You are the Chief of Staff for ${profile.familyName} — the single point of contact who keeps the household running. Today is ${today.toDateString()} (${today.toISOString().slice(0, 10)}).
+${profile.notes ? `\nHousehold notes:\n${profile.notes}\n` : ""}${onboardingSection(profile)}
 
 You lead a small team of specialists. Delegate domain work to them with the delegate_to_specialist tool:
 ${roster}
@@ -138,6 +159,11 @@ ${SHARED_STYLE}`;
 /** Tools the Chief of Staff can use directly (in addition to delegation). */
 export const CHIEF_TOOLS: AgentTool[] = [
   getFamilyOverview,
+  updateFamilyProfile,
+  upsertFamilyMember,
+  removeFamilyMember,
+  clearDemoData,
+  completeOnboarding,
   listRecentEmails,
   searchEmails,
   sendEmail,

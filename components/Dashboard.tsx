@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-interface DashboardData {
+export interface DashboardData {
   familyName: string;
-  members: { id: string; name: string; role: string; age?: number }[];
+  onboarded: boolean;
+  members: {
+    id: string;
+    name: string;
+    role: string;
+    age?: number;
+    notes?: string;
+    email?: string;
+    phone?: string;
+  }[];
   events: { id: string; title: string; start: string; end: string; location?: string }[];
   emails: { id: string; from: string; subject: string; date: string; read: boolean }[];
   budget: { id: string; name: string; monthlyBudget: number; spent: number }[];
@@ -41,28 +48,33 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-export default function Dashboard({ refreshKey }: { refreshKey: number }) {
-  const [data, setData] = useState<DashboardData | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/dashboard")
-      .then((r) => r.json())
-      .then((d: DashboardData) => {
-        if (!cancelled) setData(d);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshKey]);
-
+export default function Dashboard({ data }: { data: DashboardData | null }) {
   if (!data) {
     return <p className="p-4 text-sm text-ink-soft">Loading the household…</p>;
   }
 
   return (
     <div className="space-y-4">
+      <Card title="Family">
+        {data.members.length === 0 ? (
+          <p className="text-sm text-ink-soft">No members yet — set up your family in the chat.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {data.members.map((m) => (
+              <li key={m.id} className="text-sm">
+                <span className="font-medium text-ink">{m.name}</span>
+                <span className="text-xs text-ink-soft">
+                  {" "}
+                  · {m.role}
+                  {m.age != null ? `, ${m.age}` : ""}
+                </span>
+                {m.notes && <div className="text-xs text-ink-soft">{m.notes}</div>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
       <Card title="This week">
         {data.events.length === 0 ? (
           <p className="text-sm text-ink-soft">Nothing on the calendar.</p>

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getStore } from "@/lib/store";
 import type { AgentTool } from "./tools";
 import { CHIEF_TOOLS, SPECIALISTS, chiefOfStaffSystem, type SpecialistAgent } from "./definitions";
 
@@ -150,7 +151,8 @@ export async function runChiefOfStaff(
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [...history];
   const apiTools: Anthropic.Tool[] = [...toApiTools(CHIEF_TOOLS), delegateToolDefinition()];
-  const system = chiefOfStaffSystem();
+  const profile = await getStore().getHousehold();
+  const system = chiefOfStaffSystem(profile);
 
   for (let turn = 0; turn < MAX_CHIEF_TURNS; turn++) {
     const stream = client.messages.stream({

@@ -28,6 +28,104 @@ export const getFamilyOverview: AgentTool = {
   },
 };
 
+// ---------------------------------------------------------------- profile & onboarding
+
+export const updateFamilyProfile: AgentTool = {
+  name: "update_family_profile",
+  description:
+    "Update the household profile: the family display name and/or the freeform household notes. Household notes are shared context every agent can see — good for address, school names, weekly routines, sitter/emergency contacts, and preferences. Pass the full notes text (it replaces, not appends).",
+  mutates: true,
+  input_schema: {
+    type: "object",
+    properties: {
+      familyName: { type: "string", description: 'Display name, e.g. "The Garcia Family"' },
+      notes: { type: "string", description: "Full household notes text (replaces existing notes)" },
+    },
+    additionalProperties: false,
+  },
+  async run(input) {
+    const profile = await getStore().updateHouseholdProfile({
+      familyName: input.familyName ? String(input.familyName) : undefined,
+      notes: input.notes !== undefined ? String(input.notes) : undefined,
+    });
+    return j({ familyName: profile.familyName, notes: profile.notes });
+  },
+};
+
+export const upsertFamilyMember: AgentTool = {
+  name: "upsert_family_member",
+  description:
+    "Add a family member, or update an existing one by passing their id (from get_family_overview). Notes should capture what agents need to plan well: allergies, activities, pickup/work schedules, preferences.",
+  mutates: true,
+  input_schema: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Existing member id to update; omit to add a new member" },
+      name: { type: "string" },
+      role: { type: "string", enum: ["parent", "child"] },
+      age: { type: "integer" },
+      notes: { type: "string" },
+      email: { type: "string" },
+      phone: { type: "string" },
+      birthday: { type: "string", description: "ISO date, e.g. 2017-03-14" },
+    },
+    required: ["name", "role"],
+    additionalProperties: false,
+  },
+  async run(input) {
+    const member = await getStore().upsertMember({
+      id: input.id ? String(input.id) : undefined,
+      name: String(input.name),
+      role: input.role === "child" ? "child" : "parent",
+      age: typeof input.age === "number" ? input.age : undefined,
+      notes: input.notes ? String(input.notes) : undefined,
+      email: input.email ? String(input.email) : undefined,
+      phone: input.phone ? String(input.phone) : undefined,
+      birthday: input.birthday ? String(input.birthday) : undefined,
+    });
+    return j({ member });
+  },
+};
+
+export const removeFamilyMember: AgentTool = {
+  name: "remove_family_member",
+  description: "Remove a family member from the household by their id.",
+  mutates: true,
+  input_schema: {
+    type: "object",
+    properties: { id: { type: "string" } },
+    required: ["id"],
+    additionalProperties: false,
+  },
+  async run(input) {
+    return j({ removed: await getStore().removeMember(String(input.id)) });
+  },
+};
+
+export const clearDemoData: AgentTool = {
+  name: "clear_demo_data",
+  description:
+    "Wipe the seeded demo household content: members, calendar events, inbox, transactions, bills, tasks, meal plan, and grocery list (budget categories stay, with spend reset to 0). Call this exactly once, at the start of setting up a real family, after the user confirms. Cannot be undone.",
+  mutates: true,
+  input_schema: { type: "object", properties: {}, additionalProperties: false },
+  async run() {
+    await getStore().clearDemoData();
+    return j({ cleared: true });
+  },
+};
+
+export const completeOnboarding: AgentTool = {
+  name: "complete_onboarding",
+  description:
+    "Mark household setup as complete. Call this when the family profile interview is finished and the user is happy with it.",
+  mutates: true,
+  input_schema: { type: "object", properties: {}, additionalProperties: false },
+  async run() {
+    await getStore().setOnboarded(true);
+    return j({ onboarded: true });
+  },
+};
+
 // ---------------------------------------------------------------- calendar
 
 export const listCalendarEvents: AgentTool = {

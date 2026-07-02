@@ -12,8 +12,9 @@ import type {
   MealPlanEntry,
   Transaction,
 } from "@/lib/types";
+import type { HouseholdProfile } from "@/lib/types";
 import { seed } from "./seed";
-import { newId, type AddTransactionResult, type FamilyStore } from "./types";
+import { newId, type AddTransactionResult, type FamilyStore, type MemberInput } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "family-data.json");
@@ -55,9 +56,68 @@ export class LocalJsonStore implements FamilyStore {
     }
   }
 
-  async getHousehold(): Promise<{ familyName: string; members: FamilyMember[] }> {
+  async getHousehold(): Promise<HouseholdProfile> {
     const d = this.data();
-    return { familyName: d.familyName, members: d.members };
+    return {
+      familyName: d.familyName,
+      notes: d.notes,
+      onboarded: d.onboarded ?? false,
+      members: d.members,
+    };
+  }
+
+  async updateHouseholdProfile(input: {
+    familyName?: string;
+    notes?: string;
+  }): Promise<HouseholdProfile> {
+    const d = this.data();
+    if (input.familyName !== undefined) d.familyName = input.familyName;
+    if (input.notes !== undefined) d.notes = input.notes;
+    this.save();
+    return this.getHousehold();
+  }
+
+  async upsertMember(input: MemberInput): Promise<FamilyMember> {
+    const d = this.data();
+    if (input.id) {
+      const existing = d.members.find((m) => m.id === input.id);
+      if (existing) {
+        Object.assign(existing, input);
+        this.save();
+        return existing;
+      }
+    }
+    const member: FamilyMember = { ...input, id: input.id ?? newId("m") };
+    d.members.push(member);
+    this.save();
+    return member;
+  }
+
+  async removeMember(id: string): Promise<boolean> {
+    const d = this.data();
+    const before = d.members.length;
+    d.members = d.members.filter((m) => m.id !== id);
+    this.save();
+    return d.members.length < before;
+  }
+
+  async setOnboarded(done: boolean): Promise<void> {
+    this.data().onboarded = done;
+    this.save();
+  }
+
+  async clearDemoData(): Promise<void> {
+    const d = this.data();
+    d.members = [];
+    d.transactions = [];
+    d.bills = [];
+    d.tasks = [];
+    d.mealPlan = [];
+    d.groceries = [];
+    d.events = [];
+    d.emails = [];
+    for (const cat of d.budget) cat.spent = 0;
+    this.save();
   }
 
   async getBudget(): Promise<BudgetCategory[]> {

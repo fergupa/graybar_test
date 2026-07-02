@@ -1,12 +1,26 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "@/components/Chat";
-import Dashboard from "@/components/Dashboard";
+import Dashboard, { type DashboardData } from "@/components/Dashboard";
 
 export default function Home() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [data, setData] = useState<DashboardData | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/dashboard")
+      .then((r) => r.json())
+      .then((d: DashboardData) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
 
   // Agents can fire several mutations in quick succession; coalesce refetches.
   const onDashboardDirty = useCallback(() => {
@@ -25,15 +39,15 @@ export default function Home() {
             Chief of Staff · Finance Manager · Activity Planner · Food Planner
           </p>
         </div>
-        <span className="text-xs text-ink-soft">The Harper Family</span>
+        <span className="text-xs text-ink-soft">{data?.familyName ?? ""}</span>
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-6 py-4 md:grid-cols-[1fr_340px]">
         <div className="min-h-0">
-          <Chat onDashboardDirty={onDashboardDirty} />
+          <Chat onDashboardDirty={onDashboardDirty} onboarded={data?.onboarded ?? null} />
         </div>
         <aside className="hidden min-h-0 overflow-y-auto pb-4 md:block">
-          <Dashboard refreshKey={refreshKey} />
+          <Dashboard data={data} />
         </aside>
       </main>
     </div>

@@ -25,6 +25,7 @@ export async function GET(): Promise<Response> {
 
   return Response.json({
     familyName: household.familyName,
+    onboarded: household.onboarded,
     members: household.members,
     events,
     emails: emails.map(({ id, from, subject, date, read }) => ({ id, from, subject, date, read })),

@@ -71,10 +71,14 @@ Open http://localhost:3000 and try:
 - *"Plan dinners for the rest of the week and update the grocery list"*
 - *"How's our budget looking this month?"*
 
+## Family onboarding
+
+A fresh household starts on seeded demo data (the fictional Harpers) so everything works immediately. To make it yours, click **"Set up your real family"** on the chat home screen (or just ask): the Chief of Staff interviews you conversationally — family name, members with ages and contact info, allergies, routines, schools — clears the demo data (with your confirmation), and saves your profile as you answer, so the dashboard fills in live. The profile feeds every agent's context, and agents keep it current as they learn new durable facts in later conversations. You can update anything later by just telling the chat ("Maya's soccer moved to Tuesdays", "add Grandma's phone number").
+
 ## Setting up Supabase
 
 1. Create a project at [supabase.com](https://supabase.com) (free tier is fine).
-2. Open the SQL editor and run `supabase/migrations/0001_init.sql` (or use `supabase db push` with the CLI).
+2. Open the SQL editor and run each file in `supabase/migrations/` in order (or use `supabase db push` with the CLI). When new migrations land in that folder, run the new ones against your existing project.
 3. Set the env vars (locally in `.env.local`, or in your host's dashboard):
    - `SUPABASE_URL` — Project settings → Data API
    - `SUPABASE_SERVICE_ROLE_KEY` — Project settings → API keys (**server-side secret**; never expose it to the browser or prefix it with `NEXT_PUBLIC_`)

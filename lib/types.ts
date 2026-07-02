@@ -6,6 +6,19 @@ export interface FamilyMember {
   role: "parent" | "child";
   age?: number;
   notes?: string;
+  email?: string;
+  phone?: string;
+  /** ISO 8601 date */
+  birthday?: string;
+}
+
+export interface HouseholdProfile {
+  familyName: string;
+  /** Freeform household context: address, schools, routines, sitter contacts... */
+  notes?: string;
+  /** False while the household is still running on seeded demo data. */
+  onboarded: boolean;
+  members: FamilyMember[];
 }
 
 export interface CalendarEvent {
@@ -82,6 +95,8 @@ export interface GroceryItem {
 /** Full household snapshot — used by the seed and the local JSON store. */
 export interface FamilyData {
   familyName: string;
+  notes?: string;
+  onboarded?: boolean;
   members: FamilyMember[];
   budget: BudgetCategory[];
   transactions: Transaction[];

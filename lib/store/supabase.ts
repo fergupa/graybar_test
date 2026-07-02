@@ -7,11 +7,12 @@ import type {
   FamilyMember,
   FamilyTask,
   GroceryItem,
+  HouseholdProfile,
   MealPlanEntry,
   Transaction,
 } from "@/lib/types";
 import { seed } from "./seed";
-import { newId, type AddTransactionResult, type FamilyStore } from "./types";
+import { newId, type AddTransactionResult, type FamilyStore, type MemberInput } from "./types";
 
 const HOUSEHOLD_ID = "default";
 
@@ -24,6 +25,9 @@ const memberFromRow = (r: Row): FamilyMember => ({
   role: r.role,
   age: r.age ?? undefined,
   notes: r.notes ?? undefined,
+  email: r.email ?? undefined,
+  phone: r.phone ?? undefined,
+  birthday: r.birthday ?? undefined,
 });
 
 const budgetFromRow = (r: Row): BudgetCategory => ({
@@ -191,18 +195,110 @@ export class SupabaseStore implements FamilyStore {
     return this.db.from(table);
   }
 
-  async getHousehold(): Promise<{ familyName: string; members: FamilyMember[] }> {
+  async getHousehold(): Promise<HouseholdProfile> {
     await this.ensureSeeded();
     const [hh, members] = await Promise.all([
-      this.from("households").select("name").eq("id", HOUSEHOLD_ID).single(),
+      this.from("households").select("name, notes, onboarded").eq("id", HOUSEHOLD_ID).single(),
       this.from("members").select("*").eq("household_id", HOUSEHOLD_ID).order("id"),
     ]);
     throwIf(hh.error, "getHousehold");
     throwIf(members.error, "getHousehold members");
+    const row = hh.data as Row;
     return {
-      familyName: (hh.data as Row).name,
+      familyName: row.name,
+      notes: row.notes ?? undefined,
+      onboarded: Boolean(row.onboarded),
       members: (members.data as Row[]).map(memberFromRow),
     };
+  }
+
+  async updateHouseholdProfile(input: {
+    familyName?: string;
+    notes?: string;
+  }): Promise<HouseholdProfile> {
+    await this.ensureSeeded();
+    const patch: Row = {};
+    if (input.familyName !== undefined) patch.name = input.familyName;
+    if (input.notes !== undefined) patch.notes = input.notes;
+    if (Object.keys(patch).length > 0) {
+      throwIf(
+        (await this.from("households").update(patch).eq("id", HOUSEHOLD_ID)).error,
+        "updateHouseholdProfile",
+      );
+    }
+    return this.getHousehold();
+  }
+
+  async upsertMember(input: MemberInput): Promise<FamilyMember> {
+    await this.ensureSeeded();
+    const row: Row = {
+      name: input.name,
+      role: input.role,
+      age: input.age ?? null,
+      notes: input.notes ?? null,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+      birthday: input.birthday ?? null,
+    };
+    if (input.id) {
+      const { data, error } = await this.from("members")
+        .update(row)
+        .eq("id", input.id)
+        .eq("household_id", HOUSEHOLD_ID)
+        .select()
+        .maybeSingle();
+      throwIf(error, "upsertMember update");
+      if (data) return memberFromRow(data as Row);
+    }
+    const { data, error } = await this.from("members")
+      .insert({ ...row, id: input.id ?? newId("m"), household_id: HOUSEHOLD_ID })
+      .select()
+      .single();
+    throwIf(error, "upsertMember insert");
+    return memberFromRow(data as Row);
+  }
+
+  async removeMember(id: string): Promise<boolean> {
+    const { data, error } = await this.from("members")
+      .delete()
+      .eq("id", id)
+      .eq("household_id", HOUSEHOLD_ID)
+      .select();
+    throwIf(error, "removeMember");
+    return (data as Row[]).length > 0;
+  }
+
+  async setOnboarded(done: boolean): Promise<void> {
+    await this.ensureSeeded();
+    throwIf(
+      (await this.from("households").update({ onboarded: done }).eq("id", HOUSEHOLD_ID)).error,
+      "setOnboarded",
+    );
+  }
+
+  async clearDemoData(): Promise<void> {
+    await this.ensureSeeded();
+    const tables = [
+      "members",
+      "transactions",
+      "bills",
+      "tasks",
+      "meal_plan",
+      "groceries",
+      "calendar_events",
+      "emails",
+    ];
+    for (const table of tables) {
+      throwIf(
+        (await this.from(table).delete().eq("household_id", HOUSEHOLD_ID)).error,
+        `clearDemoData ${table}`,
+      );
+    }
+    throwIf(
+      (await this.from("budget_categories").update({ spent: 0 }).eq("household_id", HOUSEHOLD_ID))
+        .error,
+      "clearDemoData budget reset",
+    );
   }
 
   async getBudget(): Promise<BudgetCategory[]> {

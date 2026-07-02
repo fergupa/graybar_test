@@ -16,6 +16,9 @@ const SUGGESTIONS = [
   "What's on the schedule this weekend, and what prep do we need?",
 ];
 
+const SETUP_PROMPT =
+  "Let's set up our family — interview me and replace the demo data with our real household.";
+
 const AGENT_COLORS: Record<string, string> = {
   "Chief of Staff": "bg-accent-soft text-accent",
   "Finance Manager": "bg-sage-soft text-sage",
@@ -23,7 +26,14 @@ const AGENT_COLORS: Record<string, string> = {
   "Food Planner": "bg-[#f3ecdf] text-[#8a6a2f]",
 };
 
-export default function Chat({ onDashboardDirty }: { onDashboardDirty: () => void }) {
+export default function Chat({
+  onDashboardDirty,
+  onboarded,
+}: {
+  onDashboardDirty: () => void;
+  /** null while loading; false = still on demo data */
+  onboarded: boolean | null;
+}) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -143,6 +153,14 @@ export default function Chat({ onDashboardDirty }: { onDashboardDirty: () => voi
               run a team for finances, activities, and meals.
             </p>
             <div className="mt-6 flex flex-col gap-2">
+              {onboarded === false && (
+                <button
+                  onClick={() => send(SETUP_PROMPT)}
+                  className="rounded-xl border border-accent bg-accent-soft px-4 py-2.5 text-left text-sm font-medium text-accent transition hover:bg-accent hover:text-white"
+                >
+                  👋 New here? Set up your real family (you&apos;re seeing demo data)
+                </button>
+              )}
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
