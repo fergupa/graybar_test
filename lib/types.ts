@@ -92,6 +92,28 @@ export interface GroceryItem {
   done: boolean;
 }
 
+export interface Conversation {
+  id: string;
+  title: string;
+  /** ISO 8601 datetime */
+  createdAt: string;
+  /** ISO 8601 datetime */
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  /** ISO 8601 datetime */
+  createdAt: string;
+}
+
+/** Conversation with inline messages — used by the local JSON store. */
+export interface StoredConversation extends Conversation {
+  messages: ChatMessage[];
+}
+
 /** Full household snapshot — used by the seed and the local JSON store. */
 export interface FamilyData {
   familyName: string;
@@ -106,4 +128,5 @@ export interface FamilyData {
   groceries: GroceryItem[];
   events: CalendarEvent[];
   emails: EmailMessage[];
+  conversations?: StoredConversation[];
 }

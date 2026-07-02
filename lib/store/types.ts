@@ -2,6 +2,8 @@ import type {
   Bill,
   BudgetCategory,
   CalendarEvent,
+  ChatMessage,
+  Conversation,
   EmailMessage,
   FamilyMember,
   FamilyTask,
@@ -75,6 +77,19 @@ export interface FamilyStore {
   createEvent(event: Omit<CalendarEvent, "id">): Promise<CalendarEvent>;
   updateEvent(id: string, patch: Partial<Omit<CalendarEvent, "id">>): Promise<CalendarEvent | null>;
   deleteEvent(id: string): Promise<boolean>;
+
+  // Chat history
+  listConversations(): Promise<Conversation[]>;
+  createConversation(title: string): Promise<Conversation>;
+  deleteConversation(id: string): Promise<boolean>;
+  /** Returns null if the conversation doesn't exist. */
+  getConversationMessages(conversationId: string): Promise<ChatMessage[] | null>;
+  /** Appends a message and bumps the conversation's updatedAt. */
+  appendChatMessage(
+    conversationId: string,
+    role: "user" | "assistant",
+    content: string,
+  ): Promise<ChatMessage>;
 
   // Email
   listRecentEmails(limit: number): Promise<EmailMessage[]>;

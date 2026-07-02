@@ -12,7 +12,7 @@ import type {
   MealPlanEntry,
   Transaction,
 } from "@/lib/types";
-import type { HouseholdProfile } from "@/lib/types";
+import type { ChatMessage, Conversation, HouseholdProfile } from "@/lib/types";
 import { seed } from "./seed";
 import { newId, type AddTransactionResult, type FamilyStore, type MemberInput } from "./types";
 
@@ -284,6 +284,60 @@ export class LocalJsonStore implements FamilyStore {
     d.events = d.events.filter((e) => e.id !== id);
     this.save();
     return d.events.length < before;
+  }
+
+  async listConversations(): Promise<Conversation[]> {
+    const d = this.data();
+    d.conversations ??= [];
+    return d.conversations
+      .map(({ id, title, createdAt, updatedAt }) => ({ id, title, createdAt, updatedAt }))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async createConversation(title: string): Promise<Conversation> {
+    const d = this.data();
+    d.conversations ??= [];
+    const now = new Date().toISOString();
+    const conv = { id: newId("conv"), title, createdAt: now, updatedAt: now, messages: [] };
+    d.conversations.push(conv);
+    this.save();
+    const { messages: _messages, ...summary } = conv;
+    return summary;
+  }
+
+  async deleteConversation(id: string): Promise<boolean> {
+    const d = this.data();
+    d.conversations ??= [];
+    const before = d.conversations.length;
+    d.conversations = d.conversations.filter((c) => c.id !== id);
+    this.save();
+    return d.conversations.length < before;
+  }
+
+  async getConversationMessages(conversationId: string): Promise<ChatMessage[] | null> {
+    const d = this.data();
+    const conv = (d.conversations ?? []).find((c) => c.id === conversationId);
+    return conv ? conv.messages : null;
+  }
+
+  async appendChatMessage(
+    conversationId: string,
+    role: "user" | "assistant",
+    content: string,
+  ): Promise<ChatMessage> {
+    const d = this.data();
+    const conv = (d.conversations ?? []).find((c) => c.id === conversationId);
+    if (!conv) throw new Error("Conversation not found");
+    const message: ChatMessage = {
+      id: newId("msg"),
+      role,
+      content,
+      createdAt: new Date().toISOString(),
+    };
+    conv.messages.push(message);
+    conv.updatedAt = message.createdAt;
+    this.save();
+    return message;
   }
 
   async listRecentEmails(limit: number): Promise<EmailMessage[]> {

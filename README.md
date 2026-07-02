@@ -80,6 +80,10 @@ Open http://localhost:3000 and try:
 - *"Plan dinners for the rest of the week and update the grocery list"*
 - *"How's our budget looking this month?"*
 
+## Chat history
+
+Conversations persist to the store (Supabase in production): the sidebar lists past chats, **+ New chat** starts a fresh one, and reopening a conversation lets the Chief of Staff continue with full context — the server replays the stored transcript on every turn, so history survives refreshes and works across devices. Note: chat history is one shared list per household (no per-user separation until auth lands).
+
 ## Family onboarding
 
 A fresh household starts on seeded demo data (the fictional Harpers) so everything works immediately. To make it yours, click **"Set up your real family"** on the chat home screen (or just ask): the Chief of Staff interviews you conversationally — family name, members with ages and contact info, allergies, routines, schools — clears the demo data (with your confirmation), and saves your profile as you answer, so the dashboard fills in live. The profile feeds every agent's context, and agents keep it current as they learn new durable facts in later conversations. You can update anything later by just telling the chat ("Maya's soccer moved to Tuesdays", "add Grandma's phone number").

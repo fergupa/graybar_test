@@ -29,20 +29,55 @@ const AGENT_COLORS: Record<string, string> = {
 export default function Chat({
   onDashboardDirty,
   onboarded,
+  conversationId,
+  onConversationCreated,
 }: {
   onDashboardDirty: () => void;
   /** null while loading; false = still on demo data */
   onboarded: boolean | null;
+  /** null = fresh, unsaved chat */
+  conversationId: string | null;
+  onConversationCreated: (conv: { id: string; title: string; updatedAt: string }) => void;
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The conversation this component itself just created mid-stream — when the
+  // parent selects it, we must not reload messages over the live stream.
+  const createdIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [turns]);
+
+  // Load history when switching conversations (or clear for a new chat).
+  useEffect(() => {
+    if (!conversationId) {
+      createdIdRef.current = null;
+      setTurns([]);
+      setError(null);
+      return;
+    }
+    if (conversationId === createdIdRef.current) return; // already showing it live
+    createdIdRef.current = null;
+    let cancelled = false;
+    setError(null);
+    fetch(`/api/conversations/${conversationId}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load conversation"))))
+      .then((messages: { role: "user" | "assistant"; content: string }[]) => {
+        if (!cancelled) {
+          setTurns(messages.map((m) => ({ role: m.role, content: m.content })));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load that conversation.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
 
   const send = useCallback(
     async (text: string) => {
@@ -52,18 +87,17 @@ export default function Chat({
       setBusy(true);
       setInput("");
 
-      const priorTurns = turns;
-      const history = [...priorTurns, { role: "user" as const, content: message }];
-      // Optimistically render the user turn and an empty assistant turn.
-      setTurns([...history, { role: "assistant", content: "", activity: [] }]);
+      setTurns((prev) => [
+        ...prev,
+        { role: "user", content: message },
+        { role: "assistant", content: "", activity: [] },
+      ]);
 
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: history.map(({ role, content }) => ({ role, content })),
-          }),
+          body: JSON.stringify({ conversationId: conversationId ?? undefined, message }),
         });
 
         if (!res.ok || !res.body) {
@@ -80,7 +114,21 @@ export default function Chat({
           text?: string;
           agent?: string;
           message?: string;
+          conversationId?: string;
+          title?: string;
+          isNew?: boolean;
         }) => {
+          if (event.type === "meta") {
+            if (event.isNew && event.conversationId) {
+              createdIdRef.current = event.conversationId;
+              onConversationCreated({
+                id: event.conversationId,
+                title: event.title ?? "Conversation",
+                updatedAt: new Date().toISOString(),
+              });
+            }
+            return;
+          }
           if (event.type === "dashboard_dirty") {
             onDashboardDirty();
             return;
@@ -137,7 +185,7 @@ export default function Chat({
         setBusy(false);
       }
     },
-    [busy, turns, onDashboardDirty],
+    [busy, conversationId, onDashboardDirty, onConversationCreated],
   );
 
   return (

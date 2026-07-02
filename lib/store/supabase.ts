@@ -3,6 +3,8 @@ import type {
   Bill,
   BudgetCategory,
   CalendarEvent,
+  ChatMessage,
+  Conversation,
   EmailMessage,
   FamilyMember,
   FamilyTask,
@@ -83,6 +85,20 @@ const eventFromRow = (r: Row): CalendarEvent => ({
   location: r.location ?? undefined,
   attendees: r.attendees ?? undefined,
   description: r.description ?? undefined,
+});
+
+const conversationFromRow = (r: Row): Conversation => ({
+  id: r.id,
+  title: r.title,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+});
+
+const chatMessageFromRow = (r: Row): ChatMessage => ({
+  id: r.id,
+  role: r.role,
+  content: r.content,
+  createdAt: r.created_at,
 });
 
 const emailFromRow = (r: Row): EmailMessage => ({
@@ -582,6 +598,88 @@ export class SupabaseStore implements FamilyStore {
       .select();
     throwIf(error, "deleteEvent");
     return (data as Row[]).length > 0;
+  }
+
+  async listConversations(): Promise<Conversation[]> {
+    await this.ensureSeeded();
+    const { data, error } = await this.from("conversations")
+      .select("*")
+      .eq("household_id", HOUSEHOLD_ID)
+      .order("updated_at", { ascending: false })
+      .limit(100);
+    throwIf(error, "listConversations");
+    return (data as Row[]).map(conversationFromRow);
+  }
+
+  async createConversation(title: string): Promise<Conversation> {
+    await this.ensureSeeded();
+    const now = new Date().toISOString();
+    const { data, error } = await this.from("conversations")
+      .insert({
+        id: newId("conv"),
+        household_id: HOUSEHOLD_ID,
+        title,
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single();
+    throwIf(error, "createConversation");
+    return conversationFromRow(data as Row);
+  }
+
+  async deleteConversation(id: string): Promise<boolean> {
+    const { data, error } = await this.from("conversations")
+      .delete()
+      .eq("id", id)
+      .eq("household_id", HOUSEHOLD_ID)
+      .select();
+    throwIf(error, "deleteConversation");
+    return (data as Row[]).length > 0;
+  }
+
+  async getConversationMessages(conversationId: string): Promise<ChatMessage[] | null> {
+    await this.ensureSeeded();
+    const { data: conv, error: convError } = await this.from("conversations")
+      .select("id")
+      .eq("id", conversationId)
+      .eq("household_id", HOUSEHOLD_ID)
+      .maybeSingle();
+    throwIf(convError, "getConversationMessages check");
+    if (!conv) return null;
+    const { data, error } = await this.from("chat_messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at")
+      .order("id");
+    throwIf(error, "getConversationMessages");
+    return (data as Row[]).map(chatMessageFromRow);
+  }
+
+  async appendChatMessage(
+    conversationId: string,
+    role: "user" | "assistant",
+    content: string,
+  ): Promise<ChatMessage> {
+    const now = new Date().toISOString();
+    const { data, error } = await this.from("chat_messages")
+      .insert({
+        id: newId("msg"),
+        conversation_id: conversationId,
+        household_id: HOUSEHOLD_ID,
+        role,
+        content,
+        created_at: now,
+      })
+      .select()
+      .single();
+    throwIf(error, "appendChatMessage");
+    throwIf(
+      (await this.from("conversations").update({ updated_at: now }).eq("id", conversationId))
+        .error,
+      "appendChatMessage touch",
+    );
+    return chatMessageFromRow(data as Row);
   }
 
   async listRecentEmails(limit: number): Promise<EmailMessage[]> {
