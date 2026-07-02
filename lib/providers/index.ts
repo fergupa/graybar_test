@@ -1,16 +1,17 @@
 import type { CalendarEvent, EmailMessage } from "@/lib/types";
 import { getStore } from "@/lib/store";
+import { AppleCalendarProvider } from "./apple-calendar";
 import type { CalendarProvider, EmailProvider } from "./types";
 
 /**
- * Provider wiring. The default implementations are backed by the family
- * store (Supabase or local JSON), which holds realistic seeded demo data.
+ * Provider wiring, selected by environment variables:
  *
- * To go live with a real service, implement the interface against its API
- * and swap it in here — no agent code changes:
+ *  - Calendar: Apple/iCloud via CalDAV when APPLE_CALDAV_USERNAME +
+ *    APPLE_CALDAV_APP_PASSWORD are set; otherwise the store-backed mock.
+ *  - Email: store-backed mock (a Gmail/IMAP provider slots in the same way).
  *
- *   const calendar: CalendarProvider = new GoogleCalendarProvider(oauth);
- *   const email: EmailProvider = new GmailProvider(oauth);
+ * To add another integration, implement the interface against its API and
+ * add a branch here — no agent code changes.
  */
 
 class StoreCalendarProvider implements CalendarProvider {
@@ -43,13 +44,24 @@ class StoreEmailProvider implements EmailProvider {
   }
 }
 
-const calendar = new StoreCalendarProvider();
-const email = new StoreEmailProvider();
+const globalForProviders = globalThis as unknown as {
+  __familyHqCalendar?: CalendarProvider;
+  __familyHqEmail?: EmailProvider;
+};
 
 export function getCalendarProvider(): CalendarProvider {
-  return calendar;
+  if (!globalForProviders.__familyHqCalendar) {
+    const username = process.env.APPLE_CALDAV_USERNAME;
+    const appPassword = process.env.APPLE_CALDAV_APP_PASSWORD;
+    globalForProviders.__familyHqCalendar =
+      username && appPassword
+        ? new AppleCalendarProvider(username, appPassword, process.env.APPLE_CALDAV_CALENDAR)
+        : new StoreCalendarProvider();
+  }
+  return globalForProviders.__familyHqCalendar;
 }
 
 export function getEmailProvider(): EmailProvider {
-  return email;
+  globalForProviders.__familyHqEmail ??= new StoreEmailProvider();
+  return globalForProviders.__familyHqEmail;
 }

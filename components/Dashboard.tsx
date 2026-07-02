@@ -3,6 +3,7 @@
 export interface DashboardData {
   familyName: string;
   onboarded: boolean;
+  calendarError?: string;
   members: {
     id: string;
     name: string;
@@ -76,7 +77,9 @@ export default function Dashboard({ data }: { data: DashboardData | null }) {
       </Card>
 
       <Card title="This week">
-        {data.events.length === 0 ? (
+        {data.calendarError ? (
+          <p className="text-xs text-accent">Calendar error: {data.calendarError}</p>
+        ) : data.events.length === 0 ? (
           <p className="text-sm text-ink-soft">Nothing on the calendar.</p>
         ) : (
           <ul className="space-y-2.5">

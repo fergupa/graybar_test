@@ -48,14 +48,23 @@ All household state flows through the `FamilyStore` interface (`lib/store/types.
 - **Supabase** (`lib/store/supabase.ts`) — used automatically when `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set. Relational schema, seeds the demo household on first run. Use this on Vercel — serverless filesystems are ephemeral.
 - **Local JSON** (`lib/store/local.ts`) — zero-setup fallback; persists to `data/family-data.json` (gitignored, delete to reset).
 
-### Integrations: mock today, real tomorrow
+### Integrations
 
-Agents only talk to the `CalendarProvider` / `EmailProvider` interfaces in `lib/providers/types.ts`. The shipped implementations are store-backed mocks with realistic seeded data, so the whole system works end-to-end with zero OAuth setup. To go live with Google:
+Agents only talk to the `CalendarProvider` / `EmailProvider` interfaces in `lib/providers/types.ts`. Without any integration env vars, both are store-backed mocks with realistic seeded data, so the whole system works end-to-end with zero setup.
 
-1. Implement `GoogleCalendarProvider` / `GmailProvider` against those interfaces (OAuth + `googleapis`).
-2. Swap the constructors in `lib/providers/index.ts`.
+**Apple (iCloud) Calendar — supported.** Set the `APPLE_CALDAV_*` env vars (below) and the agents read/write your real iCloud calendar over CalDAV; events they create appear on all your Apple devices. Apple has no OAuth API for third-party web apps, so auth is an app-specific password:
 
-No agent or UI code changes.
+1. Go to [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → **App-Specific Passwords** → generate one (name it "Family HQ").
+2. Set env vars (locally or in Vercel), then restart/redeploy:
+   ```
+   APPLE_CALDAV_USERNAME     = your Apple ID email
+   APPLE_CALDAV_APP_PASSWORD = xxxx-xxxx-xxxx-xxxx
+   APPLE_CALDAV_CALENDAR     = Family        (optional — calendar display name; defaults to your first calendar)
+   ```
+
+Treat the app-specific password like any secret (env vars only — it grants calendar access to your Apple account; revoke it anytime at appleid.apple.com). Tip: point `APPLE_CALDAV_CALENDAR` at a dedicated shared family calendar rather than your default one — it keeps the agents scoped, and everyone in the family sees their changes. Notes: recurring events are expanded read-only (deleting an occurrence via the agent deletes the series), and family-member "attendees" are recorded in the event description rather than as real invitees.
+
+**Google Calendar / Gmail — same pattern when you want it.** Implement the interface against the Google API (OAuth + `googleapis`) and add a branch in `lib/providers/index.ts`. No agent or UI code changes.
 
 ## Running it locally
 
