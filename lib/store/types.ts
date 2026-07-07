@@ -1,4 +1,5 @@
 import type {
+  AuthProfile,
   Bill,
   BudgetCategory,
   CalendarEvent,
@@ -87,6 +88,12 @@ export interface FamilyStore {
   updateEvent(id: string, patch: Partial<Omit<CalendarEvent, "id">>): Promise<CalendarEvent | null>;
   deleteEvent(id: string): Promise<boolean>;
 
+  // Auth profiles (PIN hashes never travel with FamilyMember)
+  getAuthProfiles(): Promise<AuthProfile[]>;
+  getMemberPinHash(memberId: string): Promise<string | null>;
+  /** Pass null to clear the PIN. Returns false if the member doesn't exist. */
+  setMemberPin(memberId: string, pinHash: string | null): Promise<boolean>;
+
   // Custom agents
   listCustomAgents(): Promise<CustomAgent[]>;
   /** Create (no id) or update (id set; key is immutable). Throws if id is unknown. */
@@ -97,13 +104,14 @@ export interface FamilyStore {
     charter: string;
     system: string;
     tools: string[];
+    memberIds: string[] | null;
     enabled: boolean;
   }): Promise<CustomAgent>;
   deleteCustomAgent(id: string): Promise<boolean>;
 
   // Chat history
   listConversations(): Promise<Conversation[]>;
-  createConversation(title: string): Promise<Conversation>;
+  createConversation(title: string, memberId?: string): Promise<Conversation>;
   deleteConversation(id: string): Promise<boolean>;
   /** Returns null if the conversation doesn't exist. */
   getConversationMessages(conversationId: string): Promise<ChatMessage[] | null>;

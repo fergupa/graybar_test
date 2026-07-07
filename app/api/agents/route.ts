@@ -1,5 +1,6 @@
-import { SPECIALISTS } from "@/lib/agents/definitions";
+import { PARENT_ONLY_TOOL_NAMES, SPECIALISTS } from "@/lib/agents/definitions";
 import { TOOL_REGISTRY } from "@/lib/agents/tools";
+import { getViewer } from "@/lib/auth";
 import { getStore } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -8,7 +9,13 @@ export const dynamic = "force-dynamic";
 const LIMITS = { label: 40, charter: 200, system: 4000, tools: 15 };
 
 export async function GET(): Promise<Response> {
-  const custom = await getStore().listCustomAgents();
+  const viewer = await getViewer();
+  if (!viewer) return Response.json({ error: "Pick a profile first" }, { status: 401 });
+  if (viewer.role !== "parent") {
+    return Response.json({ error: "Managing agents is a parent thing — ask a parent!" }, { status: 403 });
+  }
+  const store = getStore();
+  const [custom, household] = await Promise.all([store.listCustomAgents(), store.getHousehold()]);
   return Response.json({
     builtIn: SPECIALISTS.map((s) => ({
       key: s.key,
@@ -17,10 +24,12 @@ export async function GET(): Promise<Response> {
       tools: s.tools.map((t) => t.name),
     })),
     custom,
+    members: household.members.map((m) => ({ id: m.id, name: m.name, role: m.role })),
     toolCatalog: Object.values(TOOL_REGISTRY).map((t) => ({
       name: t.name,
       description: t.description,
       mutates: Boolean(t.mutates),
+      parentOnly: PARENT_ONLY_TOOL_NAMES.has(t.name),
     })),
   });
 }
@@ -31,6 +40,7 @@ interface UpsertBody {
   charter?: string;
   system?: string;
   tools?: string[];
+  memberIds?: string[] | null;
   enabled?: boolean;
 }
 
@@ -45,6 +55,12 @@ function slugify(label: string): string {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  const viewer = await getViewer();
+  if (!viewer) return Response.json({ error: "Pick a profile first" }, { status: 401 });
+  if (viewer.role !== "parent") {
+    return Response.json({ error: "Only parents can manage agents" }, { status: 403 });
+  }
+
   let body: UpsertBody;
   try {
     body = (await req.json()) as UpsertBody;
@@ -86,6 +102,17 @@ export async function POST(req: Request): Promise<Response> {
 
   const store = getStore();
 
+  // Validate member assignment (null = whole family).
+  let memberIds: string[] | null = null;
+  if (Array.isArray(body.memberIds) && body.memberIds.length > 0) {
+    const validIds = new Set((await store.getHousehold()).members.map((m) => m.id));
+    memberIds = body.memberIds.map(String);
+    const bad = memberIds.filter((id) => !validIds.has(id));
+    if (bad.length > 0) {
+      return Response.json({ error: `Unknown members: ${bad.join(", ")}` }, { status: 400 });
+    }
+  }
+
   // New agents need a delegation key that's unique across built-ins + customs.
   let key = "";
   if (!body.id) {
@@ -106,6 +133,7 @@ export async function POST(req: Request): Promise<Response> {
       charter,
       system,
       tools,
+      memberIds,
       enabled,
     });
     return Response.json({ agent });

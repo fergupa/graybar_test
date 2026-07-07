@@ -122,8 +122,29 @@ ${SHARED_STYLE}`,
 
 export const SPECIALISTS: SpecialistAgent[] = [FINANCE_AGENT, ACTIVITY_AGENT, FOOD_AGENT];
 
+/**
+ * Tools children may never use, regardless of agent configuration:
+ * finances, the inbox, outbound email, and household administration.
+ */
+export const PARENT_ONLY_TOOL_NAMES = new Set([
+  "get_budget",
+  "get_transactions",
+  "add_transaction",
+  "set_budget_category",
+  "get_upcoming_bills",
+  "mark_bill_paid",
+  "list_recent_emails",
+  "search_emails",
+  "send_email",
+  "update_family_profile",
+  "upsert_family_member",
+  "remove_family_member",
+  "clear_demo_data",
+  "complete_onboarding",
+]);
+
 /** Turn a UI-created agent definition into a runnable specialist. */
-export function buildCustomSpecialist(agent: CustomAgent): SpecialistAgent {
+export function buildCustomSpecialist(agent: CustomAgent, viewerRole: "parent" | "child"): SpecialistAgent {
   return {
     key: agent.key,
     label: agent.label,
@@ -140,12 +161,37 @@ How to work:
 - Use get_family_overview when member details (ages, allergies, schedules) matter.
 ${SHARED_STYLE}`,
     tools: agent.tools
+      .filter((name) => viewerRole === "parent" || !PARENT_ONLY_TOOL_NAMES.has(name))
       .map((name) => TOOL_REGISTRY[name])
       .filter((t): t is AgentTool => Boolean(t)),
   };
 }
 
-function onboardingSection(profile: HouseholdProfile): string {
+export interface ViewerContext {
+  memberId: string;
+  name: string;
+  role: "parent" | "child";
+}
+
+function viewerSection(viewer: ViewerContext): string {
+  if (viewer.role === "parent") {
+    return `
+Current user: ${viewer.name} (parent — full access).`;
+  }
+  return `
+Current user: ${viewer.name} (CHILD). Adjust everything accordingly:
+- Be warm, encouraging, and age-appropriate (check get_family_overview for their age).
+- NEVER discuss household finances: budgets, bills, spending, account details, or money stress. If asked, say kindly that money stuff is for parents and offer to leave a note (add_task) for them instead.
+- You cannot read or send email, change family settings, or manage the household profile for this user — don't offer to.
+- Focus on their world: their schedule and activities, homework, meals, chores, and to-dos. It's great to help them plan and to add tasks or calendar events for their own things.
+- If they ask you to do something that needs a parent (spending money, changing family plans, contacting adults), suggest they ask a parent and offer to leave a note.`;
+}
+
+function onboardingSection(profile: HouseholdProfile, viewer: ViewerContext): string {
+  if (!profile.onboarded && viewer.role === "child") {
+    return `
+Household setup: not done (still demo data). Setup is a parent job — if asked, suggest they get a parent to do it.`;
+  }
   if (profile.onboarded) {
     return `
 Household setup: complete. Keep the profile current as life changes — when you learn something durable (a new activity, an allergy, a schedule change, contact info), save it with upsert_family_member or update_family_profile so the whole team benefits.`;
@@ -155,15 +201,20 @@ Household setup: NOT DONE — this household is still running on seeded DEMO dat
 1. Interview them warmly, 2-3 questions per turn, not a form dump. Cover: family name; each member (name, parent/child, ages for kids, email/phone for adults, birthdays if offered); food constraints and allergies (safety-critical); routines worth knowing (work schedules, pickups, activities); anything else useful (schools, address, sitter contacts) — that goes in household notes.
 2. Confirm before you call clear_demo_data (it wipes the demo family, calendar, inbox, and lists — irreversible), then save with upsert_family_member / update_family_profile as answers come in, so they see the dashboard fill up live.
 3. Don't demand completeness — a name and members is enough to start; everything else can be added later in normal conversation.
-4. When they're satisfied, call complete_onboarding, then give a two-sentence tour of what you and your team can do, and suggest one concrete next step based on what they told you (e.g. planning this week's dinners around their constraints).
+4. When they're satisfied, call complete_onboarding, then give a two-sentence tour of what you and your team can do, and suggest one concrete next step based on what they told you (e.g. planning this week's dinners around their constraints). Remind them to switch to their real profile from the header afterwards, and that PINs are set from the profile menu (never share a PIN in chat).
 Note: clearing demo data empties the calendar and inbox — until real calendar/email integrations are connected, those fill only with what you and the family add.`;
 }
 
-export function chiefOfStaffSystem(profile: HouseholdProfile, specialists: SpecialistAgent[]): string {
+export function chiefOfStaffSystem(
+  profile: HouseholdProfile,
+  specialists: SpecialistAgent[],
+  viewer: ViewerContext,
+): string {
   const roster = specialists.map((s) => `- "${s.key}" (${s.label}): ${s.charter}`).join("\n");
   const today = new Date();
   return `You are the Chief of Staff for ${profile.familyName} — the single point of contact who keeps the household running. Today is ${today.toDateString()} (${today.toISOString().slice(0, 10)}).
-${profile.notes ? `\nHousehold notes:\n${profile.notes}\n` : ""}${onboardingSection(profile)}
+${profile.notes ? `\nHousehold notes:\n${profile.notes}\n` : ""}${viewerSection(viewer)}
+${onboardingSection(profile, viewer)}
 
 You lead a small team of specialists. Delegate domain work to them with the delegate_to_specialist tool:
 ${roster}

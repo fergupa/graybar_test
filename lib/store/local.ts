@@ -12,7 +12,13 @@ import type {
   MealPlanEntry,
   Transaction,
 } from "@/lib/types";
-import type { ChatMessage, Conversation, CustomAgent, HouseholdProfile } from "@/lib/types";
+import type {
+  AuthProfile,
+  ChatMessage,
+  Conversation,
+  CustomAgent,
+  HouseholdProfile,
+} from "@/lib/types";
 import { seed } from "./seed";
 import {
   newId,
@@ -113,9 +119,35 @@ export class LocalJsonStore implements FamilyStore {
     this.save();
   }
 
+  async getAuthProfiles(): Promise<AuthProfile[]> {
+    const d = this.data();
+    const pins = d.memberPins ?? {};
+    return d.members.map((m) => ({
+      id: m.id,
+      name: m.name,
+      role: m.role,
+      hasPin: Boolean(pins[m.id]),
+    }));
+  }
+
+  async getMemberPinHash(memberId: string): Promise<string | null> {
+    return this.data().memberPins?.[memberId] ?? null;
+  }
+
+  async setMemberPin(memberId: string, pinHash: string | null): Promise<boolean> {
+    const d = this.data();
+    if (!d.members.some((m) => m.id === memberId)) return false;
+    d.memberPins ??= {};
+    if (pinHash === null) delete d.memberPins[memberId];
+    else d.memberPins[memberId] = pinHash;
+    this.save();
+    return true;
+  }
+
   async clearDemoData(): Promise<void> {
     const d = this.data();
     d.members = [];
+    d.memberPins = {};
     d.transactions = [];
     d.bills = [];
     d.tasks = [];
@@ -306,6 +338,7 @@ export class LocalJsonStore implements FamilyStore {
     charter: string;
     system: string;
     tools: string[];
+    memberIds: string[] | null;
     enabled: boolean;
   }): Promise<CustomAgent> {
     const d = this.data();
@@ -318,6 +351,7 @@ export class LocalJsonStore implements FamilyStore {
       existing.charter = input.charter;
       existing.system = input.system;
       existing.tools = input.tools;
+      existing.memberIds = input.memberIds;
       existing.enabled = input.enabled;
       existing.updatedAt = now;
       this.save();
@@ -330,6 +364,7 @@ export class LocalJsonStore implements FamilyStore {
       charter: input.charter,
       system: input.system,
       tools: input.tools,
+      memberIds: input.memberIds,
       enabled: input.enabled,
       createdAt: now,
       updatedAt: now,
@@ -352,15 +387,21 @@ export class LocalJsonStore implements FamilyStore {
     const d = this.data();
     d.conversations ??= [];
     return d.conversations
-      .map(({ id, title, createdAt, updatedAt }) => ({ id, title, createdAt, updatedAt }))
+      .map(({ id, title, memberId, createdAt, updatedAt }) => ({
+        id,
+        title,
+        memberId,
+        createdAt,
+        updatedAt,
+      }))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async createConversation(title: string): Promise<Conversation> {
+  async createConversation(title: string, memberId?: string): Promise<Conversation> {
     const d = this.data();
     d.conversations ??= [];
     const now = new Date().toISOString();
-    const conv = { id: newId("conv"), title, createdAt: now, updatedAt: now, messages: [] };
+    const conv = { id: newId("conv"), title, memberId, createdAt: now, updatedAt: now, messages: [] };
     d.conversations.push(conv);
     this.save();
     const { messages: _messages, ...summary } = conv;

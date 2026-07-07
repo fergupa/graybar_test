@@ -75,6 +75,13 @@ const SUGGESTIONS = [
   "What's on the schedule this weekend, and what prep do we need?",
 ];
 
+const CHILD_SUGGESTIONS = [
+  "What's on my schedule this week?",
+  "Help me plan out my homework",
+  "What's for dinner tonight?",
+  "Add something to my to-do list",
+];
+
 const SETUP_PROMPT =
   "Let's set up our family — interview me and replace the demo data with our real household.";
 
@@ -88,12 +95,14 @@ const AGENT_COLORS: Record<string, string> = {
 export default function Chat({
   onDashboardDirty,
   onboarded,
+  viewerRole,
   conversationId,
   onConversationCreated,
 }: {
   onDashboardDirty: () => void;
   /** null while loading; false = still on demo data */
   onboarded: boolean | null;
+  viewerRole: "parent" | "child";
   /** null = fresh, unsaved chat */
   conversationId: string | null;
   onConversationCreated: (conv: { id: string; title: string; updatedAt: string }) => void;
@@ -314,7 +323,7 @@ export default function Chat({
               run a team for finances, activities, and meals.
             </p>
             <div className="mt-6 flex flex-col gap-2">
-              {onboarded === false && (
+              {onboarded === false && viewerRole === "parent" && (
                 <button
                   onClick={() => send(SETUP_PROMPT)}
                   className="rounded-xl border border-accent bg-accent-soft px-4 py-2.5 text-left text-sm font-medium text-accent transition hover:bg-accent hover:text-white"
@@ -322,7 +331,7 @@ export default function Chat({
                   👋 New here? Set up your real family (you&apos;re seeing demo data)
                 </button>
               )}
-              {SUGGESTIONS.map((s) => (
+              {(viewerRole === "child" ? CHILD_SUGGESTIONS : SUGGESTIONS).map((s) => (
                 <button
                   key={s}
                   onClick={() => send(s)}

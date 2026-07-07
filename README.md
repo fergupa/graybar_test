@@ -80,6 +80,17 @@ Open http://localhost:3000 and try:
 - *"Plan dinners for the rest of the week and update the grocery list"*
 - *"How's our budget looking this month?"*
 
+## Profiles & roles
+
+The app opens on a profile picker (Netflix-style). Each family member signs in as themselves, optionally protected by a **PIN** (set it from the header menu — parents should set theirs right away, since profiles without a PIN open with one tap). Roles come from the family profile:
+
+- **Parents** see and do everything: finances, bills, the inbox, agent management, household settings.
+- **Children** get a filtered world, enforced **server-side** (API routes + the agent orchestrator, not just hidden UI): no budget/bills/inbox data, no email or settings tools, no Finance Manager, no agent management — and the Chief of Staff is instructed to be age-appropriate and redirect money questions to parents. Kids see and manage their own schedule, homework, tasks, meals, and groceries, and their chat history is theirs alone (parents can see all conversations).
+
+Custom agents can be assigned to specific members ("Who is this agent for?") — that's how a kid gets a personal Homework Helper that doesn't clutter everyone else's roster. Parent-only tools are stripped from any agent when a child is talking to it, regardless of configuration.
+
+**Security level, honestly stated:** this is family-grade protection (PINs + signed HTTP-only session cookies) designed to keep kids out of parent data. It is not internet-grade account security — anyone with the deployment URL can reach the profile picker. Set `SESSION_SECRET` in production, and treat Supabase Auth + RLS as the upgrade path when you need real accounts; all enforcement already flows through one place (`getViewer()`), so that swap is contained.
+
 ## Custom agents
 
 **Manage agents** (top-right link) lets you create new specialists from the UI without touching code: give them a name, a one-sentence charter (what the Chief of Staff reads when deciding to delegate), instructions, and a checklist of tools they may use. Saved agents are stored in the database and join the roster **on your very next message** — no redeploy. Pause, edit, or delete them anytime.

@@ -104,14 +104,26 @@ export interface CustomAgent {
   system: string;
   /** Tool names from the tool registry this agent may use. */
   tools: string[];
+  /** Member ids this agent serves; null/undefined = the whole family. */
+  memberIds?: string[] | null;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
+/** Lightweight profile info for the login picker (never includes the PIN hash). */
+export interface AuthProfile {
+  id: string;
+  name: string;
+  role: "parent" | "child";
+  hasPin: boolean;
+}
+
 export interface Conversation {
   id: string;
   title: string;
+  /** Who started it; undefined for pre-roles conversations (parent-visible). */
+  memberId?: string;
   /** ISO 8601 datetime */
   createdAt: string;
   /** ISO 8601 datetime */
@@ -158,4 +170,6 @@ export interface FamilyData {
   emails: EmailMessage[];
   conversations?: StoredConversation[];
   customAgents?: CustomAgent[];
+  /** memberId → PIN hash (kept out of FamilyMember so it never leaks). */
+  memberPins?: Record<string, string>;
 }

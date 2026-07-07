@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type {
+  AuthProfile,
   Bill,
   BudgetCategory,
   CalendarEvent,
@@ -102,6 +103,7 @@ const customAgentFromRow = (r: Row): CustomAgent => ({
   charter: r.charter,
   system: r.system,
   tools: r.tools ?? [],
+  memberIds: r.member_ids ?? null,
   enabled: r.enabled,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -110,6 +112,7 @@ const customAgentFromRow = (r: Row): CustomAgent => ({
 const conversationFromRow = (r: Row): Conversation => ({
   id: r.id,
   title: r.title,
+  memberId: r.member_id ?? undefined,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -621,6 +624,42 @@ export class SupabaseStore implements FamilyStore {
     return (data as Row[]).length > 0;
   }
 
+  async getAuthProfiles(): Promise<AuthProfile[]> {
+    await this.ensureSeeded();
+    const { data, error } = await this.from("members")
+      .select("id, name, role, pin_hash")
+      .eq("household_id", HOUSEHOLD_ID)
+      .order("id");
+    throwIf(error, "getAuthProfiles");
+    return (data as Row[]).map((r) => ({
+      id: r.id,
+      name: r.name,
+      role: r.role,
+      hasPin: Boolean(r.pin_hash),
+    }));
+  }
+
+  async getMemberPinHash(memberId: string): Promise<string | null> {
+    const { data, error } = await this.from("members")
+      .select("pin_hash")
+      .eq("id", memberId)
+      .eq("household_id", HOUSEHOLD_ID)
+      .maybeSingle();
+    throwIf(error, "getMemberPinHash");
+    return (data as Row | null)?.pin_hash ?? null;
+  }
+
+  async setMemberPin(memberId: string, pinHash: string | null): Promise<boolean> {
+    const { data, error } = await this.from("members")
+      .update({ pin_hash: pinHash })
+      .eq("id", memberId)
+      .eq("household_id", HOUSEHOLD_ID)
+      .select("id")
+      .maybeSingle();
+    throwIf(error, "setMemberPin");
+    return Boolean(data);
+  }
+
   async listCustomAgents(): Promise<CustomAgent[]> {
     await this.ensureSeeded();
     const { data, error } = await this.from("custom_agents")
@@ -638,6 +677,7 @@ export class SupabaseStore implements FamilyStore {
     charter: string;
     system: string;
     tools: string[];
+    memberIds: string[] | null;
     enabled: boolean;
   }): Promise<CustomAgent> {
     await this.ensureSeeded();
@@ -649,6 +689,7 @@ export class SupabaseStore implements FamilyStore {
           charter: input.charter,
           system: input.system,
           tools: input.tools,
+          member_ids: input.memberIds,
           enabled: input.enabled,
           updated_at: now,
         })
@@ -669,6 +710,7 @@ export class SupabaseStore implements FamilyStore {
         charter: input.charter,
         system: input.system,
         tools: input.tools,
+        member_ids: input.memberIds,
         enabled: input.enabled,
         created_at: now,
         updated_at: now,
@@ -700,7 +742,7 @@ export class SupabaseStore implements FamilyStore {
     return (data as Row[]).map(conversationFromRow);
   }
 
-  async createConversation(title: string): Promise<Conversation> {
+  async createConversation(title: string, memberId?: string): Promise<Conversation> {
     await this.ensureSeeded();
     const now = new Date().toISOString();
     const { data, error } = await this.from("conversations")
@@ -708,6 +750,7 @@ export class SupabaseStore implements FamilyStore {
         id: newId("conv"),
         household_id: HOUSEHOLD_ID,
         title,
+        member_id: memberId ?? null,
         created_at: now,
         updated_at: now,
       })

@@ -3,10 +3,12 @@ import { getStore } from "@/lib/store";
 import type { AgentTool } from "./tools";
 import {
   CHIEF_TOOLS,
+  PARENT_ONLY_TOOL_NAMES,
   SPECIALISTS,
   buildCustomSpecialist,
   chiefOfStaffSystem,
   type SpecialistAgent,
+  type ViewerContext,
 } from "./definitions";
 
 /**
@@ -147,15 +149,21 @@ function delegateToolDefinition(specialists: SpecialistAgent[]): Anthropic.Tool 
 }
 
 /**
- * Run one Chief-of-Staff turn over the given conversation history,
- * streaming text and activity events via emit.
+ * Run one Chief-of-Staff turn over the given conversation history for the
+ * given family member, streaming text and activity events via emit.
+ *
+ * Role enforcement happens here, not just in the prompt: children's requests
+ * run with parent-only tools removed and a roster that excludes the Finance
+ * Manager and agents not assigned to them.
  */
 export async function runChiefOfStaff(
   history: Anthropic.MessageParam[],
   emit: Emit,
+  viewer: ViewerContext,
 ): Promise<void> {
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [...history];
+  const isChild = viewer.role === "child";
 
   // Roster = built-in specialists + enabled UI-created agents (with at least
   // one resolvable tool), loaded fresh each turn so new agents work instantly.
@@ -164,15 +172,21 @@ export async function runChiefOfStaff(
     getStore().listCustomAgents(),
   ]);
   const specialists: SpecialistAgent[] = [
-    ...SPECIALISTS,
+    ...SPECIALISTS.filter((s) => !isChild || s.key !== "finance"),
     ...customAgents
       .filter((a) => a.enabled)
-      .map(buildCustomSpecialist)
+      // Children only get family-wide agents or ones assigned to them;
+      // parents see everything.
+      .filter((a) => !isChild || !a.memberIds || a.memberIds.includes(viewer.memberId))
+      .map((a) => buildCustomSpecialist(a, viewer.role))
       .filter((s) => s.tools.length > 0),
   ];
 
-  const apiTools: Anthropic.Tool[] = [...toApiTools(CHIEF_TOOLS), delegateToolDefinition(specialists)];
-  const system = chiefOfStaffSystem(profile, specialists);
+  const chiefTools = isChild
+    ? CHIEF_TOOLS.filter((t) => !PARENT_ONLY_TOOL_NAMES.has(t.name))
+    : CHIEF_TOOLS;
+  const apiTools: Anthropic.Tool[] = [...toApiTools(chiefTools), delegateToolDefinition(specialists)];
+  const system = chiefOfStaffSystem(profile, specialists, viewer);
 
   for (let turn = 0; turn < MAX_CHIEF_TURNS; turn++) {
     const stream = client.messages.stream({
@@ -232,7 +246,7 @@ export async function runChiefOfStaff(
           }
         }
         const { content, isError } = await runTool(
-          CHIEF_TOOLS,
+          chiefTools,
           block.name,
           block.input as Record<string, unknown>,
           "Chief of Staff",

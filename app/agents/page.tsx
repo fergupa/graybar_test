@@ -16,6 +16,7 @@ interface CustomAgent {
   charter: string;
   system: string;
   tools: string[];
+  memberIds?: string[] | null;
   enabled: boolean;
 }
 
@@ -23,26 +24,48 @@ interface ToolInfo {
   name: string;
   description: string;
   mutates: boolean;
+  parentOnly: boolean;
 }
 
 interface AgentsPayload {
   builtIn: BuiltInAgent[];
   custom: CustomAgent[];
+  members: { id: string; name: string; role: string }[];
   toolCatalog: ToolInfo[];
 }
 
-const EMPTY_FORM = { id: "", label: "", charter: "", system: "", tools: [] as string[], enabled: true };
+const EMPTY_FORM = {
+  id: "",
+  label: "",
+  charter: "",
+  system: "",
+  tools: [] as string[],
+  memberIds: null as string[] | null,
+  enabled: true,
+};
 
 export default function AgentsPage() {
   const [data, setData] = useState<AgentsPayload | null>(null);
   const [form, setForm] = useState<typeof EMPTY_FORM | null>(null);
   const [saving, setSaving] = useState(false);
+  const [blocked, setBlocked] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetch("/api/agents")
-      .then((r) => r.json())
-      .then(setData)
+      .then(async (r) => {
+        const payload = await r.json();
+        if (!r.ok) {
+          setBlocked(
+            r.status === 401
+              ? "Pick a profile on the home page first."
+              : "Managing agents is for parents — ask a parent to sign in.",
+          );
+          return;
+        }
+        setBlocked(null);
+        setData(payload as AgentsPayload);
+      })
       .catch(() => setError("Couldn't load agents."));
   }, []);
 
@@ -62,6 +85,7 @@ export default function AgentsPage() {
           charter: form.charter,
           system: form.system,
           tools: form.tools,
+          memberIds: form.memberIds,
           enabled: form.enabled,
         }),
       });
@@ -123,7 +147,9 @@ export default function AgentsPage() {
         </div>
       )}
 
-      {!data ? (
+      {blocked ? (
+        <p className="mt-6 text-sm text-ink-soft">{blocked}</p>
+      ) : !data ? (
         <p className="mt-6 text-sm text-ink-soft">Loading…</p>
       ) : (
         <div className="mt-6 space-y-8">
@@ -185,7 +211,7 @@ export default function AgentsPage() {
                     </span>
                     <span className="flex shrink-0 gap-3 text-xs">
                       <button
-                        onClick={() => setForm({ ...a })}
+                        onClick={() => setForm({ ...a, memberIds: a.memberIds ?? null })}
                         className="text-accent hover:underline"
                       >
                         Edit
@@ -203,7 +229,13 @@ export default function AgentsPage() {
                   </div>
                   <p className="mt-1 text-sm text-ink-soft">{a.charter}</p>
                   <p className="mt-1 text-xs text-ink-soft">
-                    Tools: {a.tools.map((t) => t.replaceAll("_", " ")).join(", ")}
+                    For:{" "}
+                    {a.memberIds?.length
+                      ? a.memberIds
+                          .map((id) => data.members.find((m) => m.id === id)?.name ?? id)
+                          .join(", ")
+                      : "everyone"}{" "}
+                    · Tools: {a.tools.map((t) => t.replaceAll("_", " ")).join(", ")}
                   </p>
                 </div>
               ))}
@@ -250,6 +282,46 @@ export default function AgentsPage() {
                   />
                 </label>
                 <div className="text-sm">
+                  <span className="text-ink-soft">Who is this agent for?</span>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs hover:border-accent">
+                      <input
+                        type="radio"
+                        checked={form.memberIds === null}
+                        onChange={() => setForm({ ...form, memberIds: null })}
+                        className="accent-[#c05d3b]"
+                      />
+                      <span className="text-ink">Everyone</span>
+                    </label>
+                    {data.members.map((m) => (
+                      <label
+                        key={m.id}
+                        className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs hover:border-accent"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={form.memberIds?.includes(m.id) ?? false}
+                          onChange={() => {
+                            const current = form.memberIds ?? [];
+                            const next = current.includes(m.id)
+                              ? current.filter((id) => id !== m.id)
+                              : [...current, m.id];
+                            setForm({ ...form, memberIds: next.length > 0 ? next : null });
+                          }}
+                          className="accent-[#c05d3b]"
+                        />
+                        <span className="text-ink">
+                          {m.name} <span className="text-ink-soft">({m.role})</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[11px] text-ink-soft">
+                    Kids never get parent-only tools (finance, email, settings) even if checked
+                    below.
+                  </p>
+                </div>
+                <div className="text-sm">
                   <span className="text-ink-soft">Tools this agent may use</span>
                   <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
                     {data.toolCatalog.map((t) => (
@@ -267,6 +339,9 @@ export default function AgentsPage() {
                         <span className="text-ink">
                           {t.name.replaceAll("_", " ")}
                           {t.mutates && <span className="ml-1 text-[10px] text-accent">writes</span>}
+                          {t.parentOnly && (
+                            <span className="ml-1 text-[10px] text-ink-soft">parents only</span>
+                          )}
                         </span>
                       </label>
                     ))}

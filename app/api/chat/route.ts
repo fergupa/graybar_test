@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { runChiefOfStaff, type AgentEvent } from "@/lib/agents/orchestrator";
+import { getViewer } from "@/lib/auth";
 import { getStore } from "@/lib/store";
 import type { NewAttachment } from "@/lib/store/types";
 import type { ChatMessage } from "@/lib/types";
@@ -79,6 +80,9 @@ async function replayMessage(m: ChatMessage): Promise<Anthropic.MessageParam> {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  const viewer = await getViewer();
+  if (!viewer) return json({ error: "Pick a profile first" }, 401);
+
   if (!process.env.ANTHROPIC_API_KEY) {
     return json(
       {
@@ -135,15 +139,19 @@ export async function POST(req: Request): Promise<Response> {
   let history: Anthropic.MessageParam[] = [];
 
   if (conversationId) {
+    const conv = (await store.listConversations()).find((c) => c.id === conversationId);
+    // Children can only continue their own conversations.
+    if (!conv || (viewer.role === "child" && conv.memberId !== viewer.memberId)) {
+      return json({ error: "Conversation not found" }, 404);
+    }
     const prior = await store.getConversationMessages(conversationId);
     if (prior === null) return json({ error: "Conversation not found" }, 404);
-    const conv = (await store.listConversations()).find((c) => c.id === conversationId);
-    title = conv?.title ?? "Conversation";
+    title = conv.title;
     history = await Promise.all(prior.map(replayMessage));
   } else {
     const seedTitle = message || `📎 ${attachments[0]?.name ?? "Attachment"}`;
     title = seedTitle.length > 60 ? `${seedTitle.slice(0, 57)}…` : seedTitle;
-    const conv = await store.createConversation(title);
+    const conv = await store.createConversation(title, viewer.memberId);
     conversationId = conv.id;
     isNew = true;
   }
@@ -162,7 +170,7 @@ export async function POST(req: Request): Promise<Response> {
       };
       emit({ type: "meta", conversationId: finalConversationId, title, isNew });
       try {
-        await runChiefOfStaff(history, emit);
+        await runChiefOfStaff(history, emit, viewer);
       } catch (err) {
         emit({
           type: "error",

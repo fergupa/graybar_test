@@ -14,9 +14,10 @@ export interface DashboardData {
     phone?: string;
   }[];
   events: { id: string; title: string; start: string; end: string; location?: string }[];
-  emails: { id: string; from: string; subject: string; date: string; read: boolean }[];
-  budget: { id: string; name: string; monthlyBudget: number; spent: number }[];
-  bills: { id: string; name: string; amount: number; dueDate: string; autopay: boolean }[];
+  /** Parent-only — absent for child viewers. */
+  emails?: { id: string; from: string; subject: string; date: string; read: boolean }[];
+  budget?: { id: string; name: string; monthlyBudget: number; spent: number }[];
+  bills?: { id: string; name: string; amount: number; dueDate: string; autopay: boolean }[];
   tasks: { id: string; title: string; assignee?: string; due?: string }[];
   mealPlan: { day: string; dinner: string; notes?: string }[];
   groceries: { id: string; name: string; quantity?: string }[];
@@ -114,6 +115,7 @@ export default function Dashboard({ data }: { data: DashboardData | null }) {
         )}
       </Card>
 
+      {data.budget && (
       <Card title="Budget · month to date">
         <ul className="space-y-1.5">
           {data.budget.map((b) => {
@@ -138,7 +140,9 @@ export default function Dashboard({ data }: { data: DashboardData | null }) {
           })}
         </ul>
       </Card>
+      )}
 
+      {data.bills && (
       <Card title="Bills coming up">
         {data.bills.length === 0 ? (
           <p className="text-sm text-ink-soft">All settled.</p>
@@ -162,6 +166,7 @@ export default function Dashboard({ data }: { data: DashboardData | null }) {
           </ul>
         )}
       </Card>
+      )}
 
       <Card title="To-dos">
         {data.tasks.length === 0 ? (
@@ -199,6 +204,7 @@ export default function Dashboard({ data }: { data: DashboardData | null }) {
         )}
       </Card>
 
+      {data.emails && (
       <Card title="Inbox">
         <ul className="space-y-2">
           {data.emails.map((m) => (
@@ -214,6 +220,7 @@ export default function Dashboard({ data }: { data: DashboardData | null }) {
           ))}
         </ul>
       </Card>
+      )}
     </div>
   );
 }
