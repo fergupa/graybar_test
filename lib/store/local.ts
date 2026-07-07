@@ -12,7 +12,7 @@ import type {
   MealPlanEntry,
   Transaction,
 } from "@/lib/types";
-import type { ChatMessage, Conversation, HouseholdProfile } from "@/lib/types";
+import type { ChatMessage, Conversation, CustomAgent, HouseholdProfile } from "@/lib/types";
 import { seed } from "./seed";
 import {
   newId,
@@ -291,6 +291,61 @@ export class LocalJsonStore implements FamilyStore {
     d.events = d.events.filter((e) => e.id !== id);
     this.save();
     return d.events.length < before;
+  }
+
+  async listCustomAgents(): Promise<CustomAgent[]> {
+    const d = this.data();
+    d.customAgents ??= [];
+    return [...d.customAgents].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async upsertCustomAgent(input: {
+    id?: string;
+    key: string;
+    label: string;
+    charter: string;
+    system: string;
+    tools: string[];
+    enabled: boolean;
+  }): Promise<CustomAgent> {
+    const d = this.data();
+    d.customAgents ??= [];
+    const now = new Date().toISOString();
+    if (input.id) {
+      const existing = d.customAgents.find((a) => a.id === input.id);
+      if (!existing) throw new Error("Agent not found");
+      existing.label = input.label;
+      existing.charter = input.charter;
+      existing.system = input.system;
+      existing.tools = input.tools;
+      existing.enabled = input.enabled;
+      existing.updatedAt = now;
+      this.save();
+      return existing;
+    }
+    const agent: CustomAgent = {
+      id: newId("agent"),
+      key: input.key,
+      label: input.label,
+      charter: input.charter,
+      system: input.system,
+      tools: input.tools,
+      enabled: input.enabled,
+      createdAt: now,
+      updatedAt: now,
+    };
+    d.customAgents.push(agent);
+    this.save();
+    return agent;
+  }
+
+  async deleteCustomAgent(id: string): Promise<boolean> {
+    const d = this.data();
+    d.customAgents ??= [];
+    const before = d.customAgents.length;
+    d.customAgents = d.customAgents.filter((a) => a.id !== id);
+    this.save();
+    return d.customAgents.length < before;
   }
 
   async listConversations(): Promise<Conversation[]> {

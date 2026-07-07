@@ -4,6 +4,7 @@ import type {
   CalendarEvent,
   ChatMessage,
   Conversation,
+  CustomAgent,
   EmailMessage,
   FamilyMember,
   FamilyTask,
@@ -85,6 +86,20 @@ export interface FamilyStore {
   createEvent(event: Omit<CalendarEvent, "id">): Promise<CalendarEvent>;
   updateEvent(id: string, patch: Partial<Omit<CalendarEvent, "id">>): Promise<CalendarEvent | null>;
   deleteEvent(id: string): Promise<boolean>;
+
+  // Custom agents
+  listCustomAgents(): Promise<CustomAgent[]>;
+  /** Create (no id) or update (id set; key is immutable). Throws if id is unknown. */
+  upsertCustomAgent(input: {
+    id?: string;
+    key: string;
+    label: string;
+    charter: string;
+    system: string;
+    tools: string[];
+    enabled: boolean;
+  }): Promise<CustomAgent>;
+  deleteCustomAgent(id: string): Promise<boolean>;
 
   // Chat history
   listConversations(): Promise<Conversation[]>;

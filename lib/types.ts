@@ -92,6 +92,23 @@ export interface GroceryItem {
   done: boolean;
 }
 
+/** A user-defined specialist agent, created from the app UI. */
+export interface CustomAgent {
+  id: string;
+  /** Stable slug used for delegation (e.g. "travel-planner"). */
+  key: string;
+  label: string;
+  /** One-liner the Chief of Staff reads when deciding to delegate. */
+  charter: string;
+  /** The agent's instructions (domain expertise, how to behave). */
+  system: string;
+  /** Tool names from the tool registry this agent may use. */
+  tools: string[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -140,4 +157,5 @@ export interface FamilyData {
   events: CalendarEvent[];
   emails: EmailMessage[];
   conversations?: StoredConversation[];
+  customAgents?: CustomAgent[];
 }

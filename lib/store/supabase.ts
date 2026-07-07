@@ -5,6 +5,7 @@ import type {
   CalendarEvent,
   ChatMessage,
   Conversation,
+  CustomAgent,
   EmailMessage,
   FamilyMember,
   FamilyTask,
@@ -92,6 +93,18 @@ const eventFromRow = (r: Row): CalendarEvent => ({
   location: r.location ?? undefined,
   attendees: r.attendees ?? undefined,
   description: r.description ?? undefined,
+});
+
+const customAgentFromRow = (r: Row): CustomAgent => ({
+  id: r.id,
+  key: r.key,
+  label: r.label,
+  charter: r.charter,
+  system: r.system,
+  tools: r.tools ?? [],
+  enabled: r.enabled,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
 });
 
 const conversationFromRow = (r: Row): Conversation => ({
@@ -605,6 +618,74 @@ export class SupabaseStore implements FamilyStore {
       .eq("household_id", HOUSEHOLD_ID)
       .select();
     throwIf(error, "deleteEvent");
+    return (data as Row[]).length > 0;
+  }
+
+  async listCustomAgents(): Promise<CustomAgent[]> {
+    await this.ensureSeeded();
+    const { data, error } = await this.from("custom_agents")
+      .select("*")
+      .eq("household_id", HOUSEHOLD_ID)
+      .order("created_at");
+    throwIf(error, "listCustomAgents");
+    return (data as Row[]).map(customAgentFromRow);
+  }
+
+  async upsertCustomAgent(input: {
+    id?: string;
+    key: string;
+    label: string;
+    charter: string;
+    system: string;
+    tools: string[];
+    enabled: boolean;
+  }): Promise<CustomAgent> {
+    await this.ensureSeeded();
+    const now = new Date().toISOString();
+    if (input.id) {
+      const { data, error } = await this.from("custom_agents")
+        .update({
+          label: input.label,
+          charter: input.charter,
+          system: input.system,
+          tools: input.tools,
+          enabled: input.enabled,
+          updated_at: now,
+        })
+        .eq("id", input.id)
+        .eq("household_id", HOUSEHOLD_ID)
+        .select()
+        .maybeSingle();
+      throwIf(error, "upsertCustomAgent update");
+      if (!data) throw new Error("Agent not found");
+      return customAgentFromRow(data as Row);
+    }
+    const { data, error } = await this.from("custom_agents")
+      .insert({
+        id: newId("agent"),
+        household_id: HOUSEHOLD_ID,
+        key: input.key,
+        label: input.label,
+        charter: input.charter,
+        system: input.system,
+        tools: input.tools,
+        enabled: input.enabled,
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single();
+    throwIf(error, "upsertCustomAgent insert");
+    return customAgentFromRow(data as Row);
+  }
+
+  async deleteCustomAgent(id: string): Promise<boolean> {
+    const { data, error } = await this.from("custom_agents")
+      .delete()
+      .eq("id", id)
+      .eq("household_id", HOUSEHOLD_ID)
+      .select();
+    throwIf(error, "deleteCustomAgent");
     return (data as Row[]).length > 0;
   }
 

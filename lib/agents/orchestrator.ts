@@ -1,7 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getStore } from "@/lib/store";
 import type { AgentTool } from "./tools";
-import { CHIEF_TOOLS, SPECIALISTS, chiefOfStaffSystem, type SpecialistAgent } from "./definitions";
+import {
+  CHIEF_TOOLS,
+  SPECIALISTS,
+  buildCustomSpecialist,
+  chiefOfStaffSystem,
+  type SpecialistAgent,
+} from "./definitions";
 
 /**
  * Multi-agent orchestration.
@@ -116,7 +122,7 @@ async function runSpecialist(
   return "(specialist hit its step limit before finishing — partial work may have been done)";
 }
 
-function delegateToolDefinition(): Anthropic.Tool {
+function delegateToolDefinition(specialists: SpecialistAgent[]): Anthropic.Tool {
   return {
     name: "delegate_to_specialist",
     description:
@@ -126,8 +132,8 @@ function delegateToolDefinition(): Anthropic.Tool {
       properties: {
         specialist: {
           type: "string",
-          enum: SPECIALISTS.map((s) => s.key),
-          description: SPECIALISTS.map((s) => `${s.key}: ${s.charter}`).join(" | "),
+          enum: specialists.map((s) => s.key),
+          description: specialists.map((s) => `${s.key}: ${s.charter}`).join(" | "),
         },
         task: {
           type: "string",
@@ -150,9 +156,23 @@ export async function runChiefOfStaff(
 ): Promise<void> {
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [...history];
-  const apiTools: Anthropic.Tool[] = [...toApiTools(CHIEF_TOOLS), delegateToolDefinition()];
-  const profile = await getStore().getHousehold();
-  const system = chiefOfStaffSystem(profile);
+
+  // Roster = built-in specialists + enabled UI-created agents (with at least
+  // one resolvable tool), loaded fresh each turn so new agents work instantly.
+  const [profile, customAgents] = await Promise.all([
+    getStore().getHousehold(),
+    getStore().listCustomAgents(),
+  ]);
+  const specialists: SpecialistAgent[] = [
+    ...SPECIALISTS,
+    ...customAgents
+      .filter((a) => a.enabled)
+      .map(buildCustomSpecialist)
+      .filter((s) => s.tools.length > 0),
+  ];
+
+  const apiTools: Anthropic.Tool[] = [...toApiTools(CHIEF_TOOLS), delegateToolDefinition(specialists)];
+  const system = chiefOfStaffSystem(profile, specialists);
 
   for (let turn = 0; turn < MAX_CHIEF_TURNS; turn++) {
     const stream = client.messages.stream({
@@ -185,12 +205,12 @@ export async function runChiefOfStaff(
       toolUses.map(async (block): Promise<Anthropic.ToolResultBlockParam> => {
         if (block.name === "delegate_to_specialist") {
           const input = block.input as { specialist?: string; task?: string };
-          const specialist = SPECIALISTS.find((s) => s.key === input.specialist);
+          const specialist = specialists.find((s) => s.key === input.specialist);
           if (!specialist || !input.task) {
             return {
               type: "tool_result",
               tool_use_id: block.id,
-              content: `Invalid delegation. Valid specialists: ${SPECIALISTS.map((s) => s.key).join(", ")}`,
+              content: `Invalid delegation. Valid specialists: ${specialists.map((s) => s.key).join(", ")}`,
               is_error: true,
             };
           }

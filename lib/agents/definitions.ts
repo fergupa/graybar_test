@@ -1,5 +1,5 @@
-import type { HouseholdProfile } from "@/lib/types";
-import type { AgentTool } from "./tools";
+import type { CustomAgent, HouseholdProfile } from "@/lib/types";
+import { TOOL_REGISTRY, type AgentTool } from "./tools";
 import {
   addGroceryItems,
   addTask,
@@ -122,6 +122,29 @@ ${SHARED_STYLE}`,
 
 export const SPECIALISTS: SpecialistAgent[] = [FINANCE_AGENT, ACTIVITY_AGENT, FOOD_AGENT];
 
+/** Turn a UI-created agent definition into a runnable specialist. */
+export function buildCustomSpecialist(agent: CustomAgent): SpecialistAgent {
+  return {
+    key: agent.key,
+    label: agent.label,
+    charter: agent.charter,
+    system: `You are the ${agent.label} for a family, working under the family's Chief of Staff.
+
+Your role: ${agent.charter}
+
+Instructions from the family:
+${agent.system}
+
+How to work:
+- Ground every fact you report in a tool result — never invent data.
+- Use get_family_overview when member details (ages, allergies, schedules) matter.
+${SHARED_STYLE}`,
+    tools: agent.tools
+      .map((name) => TOOL_REGISTRY[name])
+      .filter((t): t is AgentTool => Boolean(t)),
+  };
+}
+
 function onboardingSection(profile: HouseholdProfile): string {
   if (profile.onboarded) {
     return `
@@ -136,8 +159,8 @@ Household setup: NOT DONE — this household is still running on seeded DEMO dat
 Note: clearing demo data empties the calendar and inbox — until real calendar/email integrations are connected, those fill only with what you and the family add.`;
 }
 
-export function chiefOfStaffSystem(profile: HouseholdProfile): string {
-  const roster = SPECIALISTS.map((s) => `- "${s.key}" (${s.label}): ${s.charter}`).join("\n");
+export function chiefOfStaffSystem(profile: HouseholdProfile, specialists: SpecialistAgent[]): string {
+  const roster = specialists.map((s) => `- "${s.key}" (${s.label}): ${s.charter}`).join("\n");
   const today = new Date();
   return `You are the Chief of Staff for ${profile.familyName} — the single point of contact who keeps the household running. Today is ${today.toDateString()} (${today.toISOString().slice(0, 10)}).
 ${profile.notes ? `\nHousehold notes:\n${profile.notes}\n` : ""}${onboardingSection(profile)}

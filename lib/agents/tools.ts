@@ -495,3 +495,36 @@ export const checkOffGroceryItem: AgentTool = {
     return j(result.ok ? result : { ...result, error: "Item not found" });
   },
 };
+
+// ---------------------------------------------------------------- registry
+
+/**
+ * Every tool a custom (UI-created) agent can be granted. Keep this in sync
+ * when adding tools — it drives the Manage Agents tool picker and custom
+ * agent tool resolution.
+ */
+export const TOOL_REGISTRY: Record<string, AgentTool> = Object.fromEntries(
+  [
+    getFamilyOverview,
+    listCalendarEvents,
+    createCalendarEvent,
+    deleteCalendarEvent,
+    listRecentEmails,
+    searchEmails,
+    sendEmail,
+    getBudget,
+    getTransactions,
+    addTransaction,
+    setBudgetCategory,
+    getUpcomingBills,
+    markBillPaid,
+    listTasks,
+    addTask,
+    completeTask,
+    getMealPlan,
+    setMealPlanEntry,
+    getGroceryList,
+    addGroceryItems,
+    checkOffGroceryItem,
+  ].map((t) => [t.name, t]),
+);

@@ -80,6 +80,12 @@ Open http://localhost:3000 and try:
 - *"Plan dinners for the rest of the week and update the grocery list"*
 - *"How's our budget looking this month?"*
 
+## Custom agents
+
+**Manage agents** (top-right link) lets you create new specialists from the UI without touching code: give them a name, a one-sentence charter (what the Chief of Staff reads when deciding to delegate), instructions, and a checklist of tools they may use. Saved agents are stored in the database and join the roster **on your very next message** — no redeploy. Pause, edit, or delete them anytime.
+
+Custom agents compose *existing* tools. When a new agent needs new tools or new household data (e.g. a Home & Maintenance agent tracking warranties), that's a code change — the repo ships a Claude Code skill (`.claude/skills/new-family-agent/`) that walks a coding session through the whole pattern: store + migration, tools, agent definition, dashboard card, and verification.
+
 ## Attachments
 
 Attach photos and PDFs to any chat message (📎 in the composer, up to 4 files / ~3MB per message): a photo of a school flyer becomes calendar events and tasks, a receipt becomes a logged transaction, a PDF schedule becomes a meal-planning constraint. Images are downscaled client-side before upload; binaries are stored in a private Supabase Storage bucket (`data/attachments/` on the local backend) and replayed to the model when you continue a conversation. The Chief of Staff reads attachments directly; specialists receive the extracted details in their briefs.

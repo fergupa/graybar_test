@@ -69,7 +69,12 @@ export default function Home() {
             Chief of Staff · Finance Manager · Activity Planner · Food Planner
           </p>
         </div>
-        <span className="text-xs text-ink-soft">{data?.familyName ?? ""}</span>
+        <span className="flex items-baseline gap-4 text-xs">
+          <a href="/agents" className="text-accent hover:underline">
+            Manage agents
+          </a>
+          <span className="text-ink-soft">{data?.familyName ?? ""}</span>
+        </span>
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-6 py-4 md:grid-cols-[200px_1fr] lg:grid-cols-[200px_1fr_320px]">
