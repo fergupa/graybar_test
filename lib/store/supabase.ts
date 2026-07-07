@@ -14,9 +14,16 @@ import type {
   Transaction,
 } from "@/lib/types";
 import { seed } from "./seed";
-import { newId, type AddTransactionResult, type FamilyStore, type MemberInput } from "./types";
+import {
+  newId,
+  type AddTransactionResult,
+  type FamilyStore,
+  type MemberInput,
+  type NewAttachment,
+} from "./types";
 
 const HOUSEHOLD_ID = "default";
+const ATTACHMENTS_BUCKET = "attachments";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
@@ -98,6 +105,7 @@ const chatMessageFromRow = (r: Row): ChatMessage => ({
   id: r.id,
   role: r.role,
   content: r.content,
+  attachments: r.attachments ?? undefined,
   createdAt: r.created_at,
 });
 
@@ -656,19 +664,59 @@ export class SupabaseStore implements FamilyStore {
     return (data as Row[]).map(chatMessageFromRow);
   }
 
+  private bucketReady: Promise<void> | null = null;
+
+  private ensureBucket(): Promise<void> {
+    this.bucketReady ??= (async () => {
+      const { error } = await this.db.storage.createBucket(ATTACHMENTS_BUCKET, { public: false });
+      if (error && !/already exists|duplicate/i.test(error.message)) {
+        throw new Error(`Supabase storage bucket setup failed: ${error.message}`);
+      }
+    })().catch((err) => {
+      this.bucketReady = null;
+      throw err;
+    });
+    return this.bucketReady;
+  }
+
   async appendChatMessage(
     conversationId: string,
     role: "user" | "assistant",
     content: string,
+    attachments?: NewAttachment[],
   ): Promise<ChatMessage> {
     const now = new Date().toISOString();
+    const messageId = newId("msg");
+
+    let attachmentMeta: Row[] | null = null;
+    if (attachments?.length) {
+      await this.ensureBucket();
+      attachmentMeta = [];
+      for (const [i, att] of attachments.entries()) {
+        const buffer = Buffer.from(att.data, "base64");
+        const safeName = att.name.replace(/[^\w.\-]/g, "_").slice(0, 80) || "file";
+        const storagePath = `${HOUSEHOLD_ID}/${conversationId}/${messageId}-${i}-${safeName}`;
+        const { error } = await this.db.storage
+          .from(ATTACHMENTS_BUCKET)
+          .upload(storagePath, buffer, { contentType: att.mediaType });
+        throwIf(error, "attachment upload");
+        attachmentMeta.push({
+          name: att.name,
+          mediaType: att.mediaType,
+          size: buffer.length,
+          storagePath,
+        });
+      }
+    }
+
     const { data, error } = await this.from("chat_messages")
       .insert({
-        id: newId("msg"),
+        id: messageId,
         conversation_id: conversationId,
         household_id: HOUSEHOLD_ID,
         role,
         content,
+        attachments: attachmentMeta,
         created_at: now,
       })
       .select()
@@ -680,6 +728,13 @@ export class SupabaseStore implements FamilyStore {
       "appendChatMessage touch",
     );
     return chatMessageFromRow(data as Row);
+  }
+
+  async getAttachmentData(storagePath: string): Promise<string> {
+    const { data, error } = await this.db.storage.from(ATTACHMENTS_BUCKET).download(storagePath);
+    throwIf(error, "attachment download");
+    if (!data) throw new Error("Attachment not found");
+    return Buffer.from(await data.arrayBuffer()).toString("base64");
   }
 
   async listRecentEmails(limit: number): Promise<EmailMessage[]> {

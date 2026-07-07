@@ -101,10 +101,21 @@ export interface Conversation {
   updatedAt: string;
 }
 
+export interface ChatAttachmentMeta {
+  name: string;
+  /** image/jpeg, image/png, image/gif, image/webp, or application/pdf */
+  mediaType: string;
+  /** Raw size in bytes */
+  size: number;
+  /** Where the binary lives (Supabase Storage path or local file path) */
+  storagePath: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: ChatAttachmentMeta[];
   /** ISO 8601 datetime */
   createdAt: string;
 }

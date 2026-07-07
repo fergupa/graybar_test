@@ -80,6 +80,10 @@ Open http://localhost:3000 and try:
 - *"Plan dinners for the rest of the week and update the grocery list"*
 - *"How's our budget looking this month?"*
 
+## Attachments
+
+Attach photos and PDFs to any chat message (📎 in the composer, up to 4 files / ~3MB per message): a photo of a school flyer becomes calendar events and tasks, a receipt becomes a logged transaction, a PDF schedule becomes a meal-planning constraint. Images are downscaled client-side before upload; binaries are stored in a private Supabase Storage bucket (`data/attachments/` on the local backend) and replayed to the model when you continue a conversation. The Chief of Staff reads attachments directly; specialists receive the extracted details in their briefs.
+
 ## Chat history
 
 Conversations persist to the store (Supabase in production): the sidebar lists past chats, **+ New chat** starts a fresh one, and reopening a conversation lets the Chief of Staff continue with full context — the server replays the stored transcript on every turn, so history survives refreshes and works across devices. Note: chat history is one shared list per household (no per-user separation until auth lands).

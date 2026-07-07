@@ -15,6 +15,14 @@ import type {
 
 export type MemberInput = Omit<FamilyMember, "id"> & { id?: string };
 
+/** An attachment being persisted alongside a chat message. */
+export interface NewAttachment {
+  name: string;
+  mediaType: string;
+  /** Base64-encoded binary */
+  data: string;
+}
+
 export type AddTransactionResult =
   | { error: string }
   | { added: Transaction; categorySpent: number; categoryBudget: number };
@@ -84,12 +92,15 @@ export interface FamilyStore {
   deleteConversation(id: string): Promise<boolean>;
   /** Returns null if the conversation doesn't exist. */
   getConversationMessages(conversationId: string): Promise<ChatMessage[] | null>;
-  /** Appends a message and bumps the conversation's updatedAt. */
+  /** Appends a message (persisting any attachment binaries) and bumps the conversation's updatedAt. */
   appendChatMessage(
     conversationId: string,
     role: "user" | "assistant",
     content: string,
+    attachments?: NewAttachment[],
   ): Promise<ChatMessage>;
+  /** Base64 data for a previously stored attachment. */
+  getAttachmentData(storagePath: string): Promise<string>;
 
   // Email
   listRecentEmails(limit: number): Promise<EmailMessage[]>;

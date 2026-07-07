@@ -14,10 +14,17 @@ import type {
 } from "@/lib/types";
 import type { ChatMessage, Conversation, HouseholdProfile } from "@/lib/types";
 import { seed } from "./seed";
-import { newId, type AddTransactionResult, type FamilyStore, type MemberInput } from "./types";
+import {
+  newId,
+  type AddTransactionResult,
+  type FamilyStore,
+  type MemberInput,
+  type NewAttachment,
+} from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "family-data.json");
+const ATTACHMENTS_DIR = path.join(DATA_DIR, "attachments");
 
 /**
  * Zero-setup store: keeps the whole household in data/family-data.json.
@@ -324,20 +331,42 @@ export class LocalJsonStore implements FamilyStore {
     conversationId: string,
     role: "user" | "assistant",
     content: string,
+    attachments?: NewAttachment[],
   ): Promise<ChatMessage> {
     const d = this.data();
     const conv = (d.conversations ?? []).find((c) => c.id === conversationId);
     if (!conv) throw new Error("Conversation not found");
+    const messageId = newId("msg");
     const message: ChatMessage = {
-      id: newId("msg"),
+      id: messageId,
       role,
       content,
       createdAt: new Date().toISOString(),
     };
+    if (attachments?.length) {
+      fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
+      message.attachments = attachments.map((att, i) => {
+        const buffer = Buffer.from(att.data, "base64");
+        const storagePath = `${messageId}-${i}`;
+        fs.writeFileSync(path.join(ATTACHMENTS_DIR, storagePath), buffer);
+        return {
+          name: att.name,
+          mediaType: att.mediaType,
+          size: buffer.length,
+          storagePath,
+        };
+      });
+    }
     conv.messages.push(message);
     conv.updatedAt = message.createdAt;
     this.save();
     return message;
+  }
+
+  async getAttachmentData(storagePath: string): Promise<string> {
+    // storagePath is an opaque id we generated; keep reads inside the dir.
+    const file = path.join(ATTACHMENTS_DIR, path.basename(storagePath));
+    return fs.readFileSync(file).toString("base64");
   }
 
   async listRecentEmails(limit: number): Promise<EmailMessage[]> {

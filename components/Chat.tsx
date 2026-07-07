@@ -5,8 +5,67 @@ import { useCallback, useEffect, useRef, useState } from "react";
 interface ChatTurn {
   role: "user" | "assistant";
   content: string;
+  attachments?: { name: string; mediaType: string }[];
   /** Activity lines (agent + action) that happened while producing this turn. */
   activity?: { agent: string; message: string }[];
+}
+
+interface PendingAttachment {
+  name: string;
+  mediaType: string;
+  data: string; // base64
+}
+
+const MAX_ATTACHMENTS = 4;
+const MAX_TOTAL_BASE64 = 4_000_000; // keep under Vercel's request body cap
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Downscale/recompress photos client-side so flyers and receipts fit the upload cap. */
+async function prepareAttachment(file: File): Promise<PendingAttachment> {
+  if (file.type === "application/pdf") {
+    if (file.size > 3_000_000) throw new Error(`"${file.name}" is too large — PDFs must be under 3MB.`);
+    return { name: file.name, mediaType: file.type, data: await fileToBase64(file) };
+  }
+  if (!file.type.startsWith("image/")) {
+    throw new Error(`"${file.name}" isn't supported — attach images or PDFs.`);
+  }
+  // Keep small originals as-is (incl. GIFs, which canvas would flatten).
+  if (file.size <= 800_000 || file.type === "image/gif") {
+    if (file.size > 3_000_000) throw new Error(`"${file.name}" is too large (max 3MB).`);
+    return { name: file.name, mediaType: file.type, data: await fileToBase64(file) };
+  }
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+  return { name: file.name, mediaType: "image/jpeg", data: dataUrl.split(",")[1] ?? "" };
+}
+
+function AttachmentChips({ attachments }: { attachments: { name: string; mediaType: string }[] }) {
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {attachments.map((a, i) => (
+        <span
+          key={i}
+          className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[11px]"
+        >
+          {a.mediaType === "application/pdf" ? "📄" : "🖼️"} {a.name}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 const SUGGESTIONS = [
@@ -41,9 +100,11 @@ export default function Chat({
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // The conversation this component itself just created mid-stream — when the
   // parent selects it, we must not reload messages over the live stream.
   const createdIdRef = useRef<string | null>(null);
@@ -66,11 +127,25 @@ export default function Chat({
     setError(null);
     fetch(`/api/conversations/${conversationId}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load conversation"))))
-      .then((messages: { role: "user" | "assistant"; content: string }[]) => {
-        if (!cancelled) {
-          setTurns(messages.map((m) => ({ role: m.role, content: m.content })));
-        }
-      })
+      .then(
+        (
+          messages: {
+            role: "user" | "assistant";
+            content: string;
+            attachments?: { name: string; mediaType: string }[];
+          }[],
+        ) => {
+          if (!cancelled) {
+            setTurns(
+              messages.map((m) => ({
+                role: m.role,
+                content: m.content,
+                attachments: m.attachments,
+              })),
+            );
+          }
+        },
+      )
       .catch(() => {
         if (!cancelled) setError("Couldn't load that conversation.");
       });
@@ -79,17 +154,51 @@ export default function Chat({
     };
   }, [conversationId]);
 
+  const addFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files) return;
+      setError(null);
+      const next = [...pending];
+      for (const file of Array.from(files)) {
+        if (next.length >= MAX_ATTACHMENTS) {
+          setError(`At most ${MAX_ATTACHMENTS} attachments per message.`);
+          break;
+        }
+        try {
+          const prepared = await prepareAttachment(file);
+          const total = next.reduce((n, a) => n + a.data.length, 0) + prepared.data.length;
+          if (total > MAX_TOTAL_BASE64) {
+            setError("Attachments too large — keep the total under ~3MB per message.");
+            break;
+          }
+          next.push(prepared);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Couldn't read that file.");
+        }
+      }
+      setPending(next);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    [pending],
+  );
+
   const send = useCallback(
     async (text: string) => {
       const message = text.trim();
-      if (!message || busy) return;
+      if ((!message && pending.length === 0) || busy) return;
+      const attachments = pending;
       setError(null);
       setBusy(true);
       setInput("");
+      setPending([]);
 
       setTurns((prev) => [
         ...prev,
-        { role: "user", content: message },
+        {
+          role: "user",
+          content: message,
+          attachments: attachments.map(({ name, mediaType }) => ({ name, mediaType })),
+        },
         { role: "assistant", content: "", activity: [] },
       ]);
 
@@ -97,7 +206,11 @@ export default function Chat({
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ conversationId: conversationId ?? undefined, message }),
+          body: JSON.stringify({
+            conversationId: conversationId ?? undefined,
+            message,
+            attachments,
+          }),
         });
 
         if (!res.ok || !res.body) {
@@ -185,7 +298,7 @@ export default function Chat({
         setBusy(false);
       }
     },
-    [busy, conversationId, onDashboardDirty, onConversationCreated],
+    [busy, pending, conversationId, onDashboardDirty, onConversationCreated],
   );
 
   return (
@@ -225,8 +338,11 @@ export default function Chat({
         {turns.map((turn, i) =>
           turn.role === "user" ? (
             <div key={i} className="flex justify-end">
-              <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-sm text-white">
-                {turn.content}
+              <div className="max-w-[85%] space-y-1.5 rounded-2xl rounded-br-sm bg-accent px-4 py-2.5 text-sm text-white">
+                {(turn.attachments?.length ?? 0) > 0 && (
+                  <AttachmentChips attachments={turn.attachments!} />
+                )}
+                {turn.content && <div>{turn.content}</div>}
               </div>
             </div>
           ) : (
@@ -267,34 +383,78 @@ export default function Chat({
         )}
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(input);
-        }}
-        className="flex items-end gap-2 border-t border-line pt-3"
-      >
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send(input);
-            }
+      <div className="border-t border-line pt-3">
+        {pending.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {pending.map((a, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-card px-2.5 py-1 text-xs text-ink"
+              >
+                {a.mediaType === "application/pdf" ? "📄" : "🖼️"} {a.name}
+                <button
+                  type="button"
+                  onClick={() => setPending((prev) => prev.filter((_, k) => k !== i))}
+                  aria-label={`Remove ${a.name}`}
+                  className="text-ink-soft transition hover:text-accent"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(input);
           }}
-          rows={2}
-          placeholder="Ask your chief of staff anything…"
-          className="flex-1 resize-none rounded-xl border border-line bg-card px-4 py-2.5 text-sm text-ink outline-none placeholder:text-ink-soft/60 focus:border-accent"
-        />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition disabled:opacity-40"
+          className="flex items-end gap-2"
         >
-          Send
-        </button>
-      </form>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
+            className="hidden"
+            onChange={(e) => addFiles(e.target.files)}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
+            aria-label="Attach images or PDFs"
+            title="Attach images or PDFs (school flyers, receipts, forms…)"
+            className="rounded-xl border border-line bg-card px-3 py-2.5 text-sm text-ink-soft transition hover:border-accent hover:text-accent disabled:opacity-40"
+          >
+            📎
+          </button>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send(input);
+              }
+            }}
+            rows={2}
+            placeholder={
+              pending.length > 0
+                ? "Add a note about the attachment(s)…"
+                : "Ask your chief of staff anything…"
+            }
+            className="flex-1 resize-none rounded-xl border border-line bg-card px-4 py-2.5 text-sm text-ink outline-none placeholder:text-ink-soft/60 focus:border-accent"
+          />
+          <button
+            type="submit"
+            disabled={busy || (!input.trim() && pending.length === 0)}
+            className="rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition disabled:opacity-40"
+          >
+            Send
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
